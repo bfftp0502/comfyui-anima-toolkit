@@ -24,7 +24,7 @@
 - **run_latest.py** 负责：读三文件 → 组装工作流参数 → 提交 ComfyUI → 轮询出图 → 通知
 - **WebUI** 负责：收图会话（图不出现在任何聊天平台，见「完全不上网」）
 
-## 二、快速开始（手动部署，不需要 AI 帮忙）
+## 二、快速开始
 
 > 目标：一台装了 ComfyUI 的电脑（建议 N 卡 ≥8G 显存），克隆本仓库后手动配好，即可命令行直接出图。
 
@@ -45,14 +45,19 @@
 
 放到 ComfyUI 对应目录（工作流按文件名引用，位置如下）：
 
-| 文件 | 放入目录 | 对应工作流 |
+| 文件 | 放入目录 | 说明 |
 |---|---|---|
-| `anima_aestheticV11.safetensors`（或 `anima-base-v1.0.safetensors`） | `ComfyUI/models/checkpoints/` | anima 全系 |
-| `anima-base-1-masterpiece-v51.safetensors` | `ComfyUI/models/loras/` | anima 直出/跑图 |
-| `anima-highres-aesthetic-boost.safetensors` | `ComfyUI/models/loras/` | anima 直出/跑图 |
-| qwen3-vl CLIP 系列（`qwen_3_06b_base` / `qwen_image_vae`） | `ComfyUI/models/clip/` 与 `vae/` | anima 双 CLIP |
+| `anima_aestheticV11.safetensors`（或 `anima-base-v1.0.safetensors`） | `ComfyUI/models/diffusion_models/` | 主模型（AnimaBoosterLoader 读此目录） |
+| `anima-base-1-masterpiece-v51.safetensors` | `ComfyUI/models/loras/` | 美学质量修饰 LoRA |
+| `anima-highres-aesthetic-boost.safetensors` | `ComfyUI/models/loras/` | 高分辨率稳定 LoRA |
+| `qwen_3_06b_base.safetensors` | `ComfyUI/models/text_encoders/` | 文本编码（CLIPLoader 读此目录） |
+| `qwen_image_vae.safetensors` | `ComfyUI/models/vae/` | 图像解码（VAELoader 读此目录） |
 
-> 具体文件名以 `workspace/data/local/<工作流>/workflow.json` 里 `model_name` / `lora_name` 为准；模型不齐时 `comfyui-skill` 提交会直接报错。
+**模型下载**：
+- 主模型与 CLIP/VAE：[circlestone-labs/Anima](https://huggingface.co/circlestone-labs/Anima)（HF 官方仓库，含 `anima-base-v1.0.safetensors` / `qwen_3_06b_base.safetensors` / `qwen_image_vae.safetensors`；`anima_aestheticV11` 为 base 的美学微调版，可从 Civitai 模型页 2458426 获取）
+- LoRA：[anima-highres-aesthetic-boost](https://civitai.red/models/2540444/anima-highresaesthetic-boost)、[aesthetic-quality-modifiers-masterpiece](https://civitai.red/models/929497/aesthetic-quality-modifiers-masterpiece?modelVersionId=2961717)
+
+> 具体文件名以 `workspace/data/local/<工作流>/workflow.json` 里 `model_name` / `lora_name` 为准；模型不齐时 `comfyui-skill` 提交会直接报错。若只跑 `-nortx` 工作流（无 RTX VSR），可跳过 RTX 相关节点依赖，但主模型/LoRA/CLIP/VAE 仍必需。
 
 ### 内置工作流（按显卡选）
 
@@ -64,49 +69,61 @@
 | `anima-txt2img-aesthetic-lora-run-nortx` | 跑图（A 卡/无 RTX 备用） | ❌ 无 | 任意显卡 |
 | `anima-txt2img-base-nortx` | **测试用**（验证环境是否装好） | ❌ 无 | 任意显卡 |
 
-> ⚠️ **RTXVideoSuperResolution 节点仅限 N 卡 RTX 系列**（RTX 20/30/40 系）。**A 卡 / Intel 核显 / 无 RTX 的 N 卡请用 `-nortx` 后缀的工作流**（无超分，出图分辨率即模型原生输出）。部署好后建议先跑 `anima-txt2img-base-nortx` 验证链路（节点最少、出图最快、不依赖 RTX）。
+> ⚠️ **RTXVideoSuperResolution 节点仅限 N 卡 RTX 系列**（RTX 20/30/40/50 系）。**A 卡 / Intel 核显 / 无 RTX 的 N 卡请用 `-nortx` 后缀的工作流**（无超分，出图分辨率即模型原生输出）。部署好后建议先跑 `anima-txt2img-base-nortx` 验证链路（节点最少、出图最快、不依赖 RTX）。
 
 ### 部署步骤
 
 ```powershell
-# 1. 装好 ComfyUI（能打开 127.0.0.1:8188）并装 comfyui-skill-cli
-pip install comfyui-skill-cli
+# 1. 安装 ComfyUI（官方流程，参考 https://docs.comfy.org/get_started）
+git clone https://github.com/comfyanonymous/ComfyUI.git
+cd ComfyUI
+python -m venv venv
+venv\Scripts\pip install -r requirements.txt
+# 启动验证：venv\Scripts\python main.py --listen 127.0.0.1 --port 8188
 
-# 2. 装自定义节点插件（克隆到 ComfyUI/custom_nodes/）
+# 2. 装 comfyui-skill-cli（装进 ComfyUI 的 venv，确保 comfyui-skill 命令可用）
+venv\Scripts\pip install comfyui-skill-cli
+
+# 3. 装自定义节点插件（克隆到 ComfyUI/custom_nodes/）
 #    —— 必需 3 个（全部工作流都依赖）——
 cd ComfyUI/custom_nodes
 git clone https://github.com/BlackSnowSkill/ANIMA_BOOSTER.git            # AnimaBoosterLoader
 git clone https://github.com/BlackSnowSkill/ComfyUI-BSS_FLSampler.git   # FLS_SamplerV4
 git clone https://github.com/daraskme/comfy_anima_tea_cache.git         # AnimaTeaCache
-#    —— 可选 1 个（仅 N 卡 RTX 用 `-rtx` 工作流时需要；A 卡跳过）——
+#    —— 可选 1 个（仅 N 卡 RTX 用带超分的工作流时需要；A 卡跳过）——
 git clone https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI.git     # RTXVideoSuperResolution
 cd ../..   # 回到上级
 
-# 3. 克隆本仓库（工作流/数据/脚本全在里面）
+# 4. 克隆本仓库（工作流/数据/脚本全在里面）
 git clone <本仓库地址> comfyui-anima-toolkit
 cd comfyui-anima-toolkit
 
-# 4. 放模型（见上表，放到你的 ComfyUI/models/ 下）
+# 5. 放模型（见上表，下载后放到 ComfyUI/models/ 对应目录）
 
-# 5. 启动 ComfyUI（已有实例可跳过；comfy_detach.py 是 detached 常驻启动）
+# 6. 启动 ComfyUI（已手动启动可跳过；comfy_detach.py 是 detached 常驻启动）
 python scripts/comfy_detach.py
 
-# 6. 验证链路
+# 7. 验证链路（在 ComfyUI 启动后执行；若 comfyui-skill 不在 PATH，用 venv\Scripts\comfyui-skill）
 comfyui-skill list   # 应列出 5 个工作流（anima 系列）
 curl http://127.0.0.1:8188/system_stats   # 有 JSON 返回 = ComfyUI 就绪
 ```
 
-### 手动出一张图（不靠 agent）
+### 手动出一张图
 
 ```powershell
-# ① 写提示词文件（workspace/args_prompt.json，直出格式：整段正面）
-#    {"prompt": "masterpiece, very aesthetic, best quality, 1girl, ..."}
+# ① 写提示词文件 workspace/args_prompt.json（直出格式：整段正面，角色+画师+场景+质量词融合）
+#    例如：
+#    {
+#      "prompt": "masterpiece, very aesthetic, best quality, 1girl, furina_(genshin_impact) @dairi, long hair, blue eyes, standing, looking at viewer, city street at night, natural language: a girl in an elegant dress standing under streetlights, soft lighting"
+#    }
 
 # ② 提交（anima 直出；尺寸 --width/--height 可选）
 python scripts/run_latest.py --target anima --mode direct --no-grab --width 864 --height 1536
 
 # ③ 出图在 ComfyUI 输出目录（默认 ~/ComfyUI/output/），日志打印路径
 ```
+
+跑图（run）模式：`--mode run`，需另写 `workspace/args_character.json`（`{"character": "角色 @画师"}`）、`workspace/args_description.json`（`{"description": "场景描述"}`）、`workspace/args_negative.json`（`{"negative": "负面词"}`），三个文件齐了再提交。
 
 ### 可选环境变量
 
@@ -121,18 +138,18 @@ python scripts/run_latest.py --target anima --mode direct --no-grab --width 864 
 
 ### 给 AI agent 用
 
-本仓库同时是 skill 包：把 `SKILL.md` 拷进 agent 的 skills 目录（Hermes：`hermes skills install` 或拷贝到 `~/skills/`），agent 就会按文档自动走「直出/跑图」流程。纯手动用户忽略 SKILL.md 即可。
+本仓库同时是 skill 包：把 `SKILL.md` 拷进 agent 的 skills 目录（Hermes：`hermes skills install` 或拷贝到 `~/skills/`），agent 就会按文档自动走「直出/跑图」流程。
 
 ---
 
-## 三、以本机两个模型为例
+## 三、模型与工作流
 
-| 模型 | 定位 | 模型文件 | 工作流 |
-|---|---|---|---|
-| **Anima** | 动漫/二次元（danbooru 标签体系，吃画师 tag） | `anima-base-v1.0.safetensors` + masterpiece/highres LoRA + LLLite patch | `anima-txt2img-aesthetic-lora`（直出）/ `-run`（跑图） |
+| 模型 | 定位 | 工作流 |
+|---|---|---|
+| **Anima**（动漫/二次元，danbooru 标签体系，吃画师 tag） | `anima-txt2img-aesthetic-lora`（直出）/ `anima-txt2img-aesthetic-lora-run`（跑图），A 卡用 `-nortx` 版 | 模型文件见「快速开始」模型表 |
 
-- 文本编码：Anima 双 CLIP（qwen3-vl-4b）
-- 尺寸：Anima 横 1536×864 / 竖 864×1536（RTX VSR 自动 2x 超分）
+- 文本编码：双 CLIP（qwen3-vl-4b）
+- 尺寸：横 1536×864 / 竖 864×1536（RTX 工作流自动 2x 超分）
 
 ## 四、两种用法
 
@@ -140,11 +157,11 @@ python scripts/run_latest.py --target anima --mode direct --no-grab --width 864 
 对 Agent 说「来张 xxx 的图」→ 直接生成，**图发当前会话**。适合顺手要一张。
 
 ### 跑图（run-image）
-对 Agent 说「**跑图**」→ 分步问答（模型 → 场景 → 角色画师）→ 出图后**通知你去收图会话领图**。图不进聊天平台，适合正经出图。
+对 Agent 说「**跑图**」→ 分步问答（场景 → 角色画师）→ 出图后**通知你去收图会话领图**。图不进聊天平台，适合正经出图。
 
 > 角色支持指定/随机/按系列随机（genshin、touhou、arknights、wuthering 等），画师支持指定/随机——随机画师风格不可控，抽到不合适的换一个就是。
 
-## 五、不用蹲在电脑前：局域网 + 远程
+## 五、访问方式：局域网 + 远程
 
 - **局域网**：同一 Wi-Fi 下，手机/平板浏览器直接开 **Hermes Web 界面**（hermes-webui，8787 端口）和 ComfyUI 前端（8188），操作/收图全在移动端完成——这是本方案的主场景，实测稳定
 - **远程（远控方法，未实践 ⚠️）**：以下思路理论上可行，但**本仓库作者没有实际跑通过，不构成承诺**：
@@ -169,10 +186,10 @@ python scripts/run_latest.py --target anima --mode direct --no-grab --width 864 
 
 这样图片只在「你的设备 → 你的电脑 → 你的浏览器」之间流转，第三方平台接触不到图。
 
-## 七、免责声明（请先读完）
+## 七、免责声明
 
 1. **生成模型的第三方属性**：出图由本地 ComfyUI + 第三方模型（Anima 等）完成，Agent 推理接云端 API——**模型输出的任何内容与内容审查行为，均与本仓库/skill 无关**，模型是第三方训练产物，仓库只提供调用流程。
-2. **关于「本地链路」的边界**：本仓库描述的是「本地出图 + 本地 WebUI 收图」的链路，图片生成与接收不经过云端审核。若你将其理解为某种审查规避——**该链路不构成对任何平台审查机制的验证或承诺**。不同模型、不同接入方式的行为差异巨大，请自行评估。
+2. **关于内容审核的边界**：本仓库只提供调用流程，不内置、也不替代任何内容审查机制。图片由本地 ComfyUI 与第三方模型生成，是否经过审核取决于你的部署环境（模型、接入方式、网络链路），本仓库对此不作任何验证或承诺。不同模型、不同接入方式的行为差异巨大，请自行评估。
 3. **图片上传消息平台有法律风险**：把图片发到任何消息平台（QQ、Telegram、Discord、微信等），图片会明文经过平台服务器，涉黄等内容可能触犯当地法律（传播淫秽物品等），并面临封号风险。**本仓库强烈建议：图片只在本地/局域网流转，不要上传任何消息平台。** 使用者的行为与责任自负，与本仓库无关。
 4. **合规提示**：请遵守你所在地区的法律法规与平台条款。未成年人内容无论本地还是云端都绝对禁止，没有任何借口。
 

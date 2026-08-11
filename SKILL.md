@@ -28,7 +28,7 @@ ComfyUI 驱动的生图双流程：**直出**（图发当前会话）与**跑图
 |---|---|
 | ComfyUI | 端口 8188。每次生图先探活：`curl -s -m 5 http://127.0.0.1:8188/system_stats`（空=未启动）。**建议 detached 方式启动**（subprocess DETACHED_PROCESS / CREATE_NEW_PROCESS_GROUP，日志重定向文件）——用会随会话/回合被清理的后台方式拉起 daemon，长任务中途可能被进程管理杀掉。跑完图只卸载模型（/free），**ComfyUI 常驻不关** |
 | 输入文件 | workspace 目录下 `args_prompt.json`（**整段正面，直出专用**）+ `args_character.json` / `args_description.json` / `args_negative.json`（anima 跑图三编码器专用），固定名覆盖写 |
-| 显卡选择 | **RTX VSR 超分仅限 N 卡 RTX**（20/30/40 系）；A 卡/核显/无 RTX 的 N 卡 → 用 `-nortx` 后缀工作流（无超分）：改 run_latest.py TEMPLATES 的 `workflow`/`workflow_run` 为 `anima-txt2img-aesthetic-lora-nortx` / `anima-txt2img-aesthetic-lora-run-nortx` |
+| 显卡选择 | **RTX VSR 超分仅限 N 卡 RTX**（20/30/40/50 系）；A 卡/核显/无 RTX 的 N 卡 → 用 `-nortx` 后缀工作流（无超分）：改 run_latest.py TEMPLATES 的 `workflow`/`workflow_run` 为 `anima-txt2img-aesthetic-lora-nortx` / `anima-txt2img-aesthetic-lora-run-nortx` |
 | 核心脚本 | `run_latest.py`（组装+提交+出图+通知）/ `set_character.py`（写角色，只收「角色 @画师」或 `random`）/ `random_char.py`（随机角色/画师）/ `tag_lookup.py` + `danbooru-tags.exe`（查 danbooru 索引）/ `anima_tools.py`（姿势/背景/服装/画师/角色库查询）/ `artist_rank.py`（角色画师排行）/ `image_track.py`（收图记录） |
 | 通知目标 | **默认 agent 自身**（agent 在出图后向用户播报）。如需接入消息平台，按下方「通知接入示例」配置，不硬编码平台账号 ID |
 
@@ -39,34 +39,32 @@ ComfyUI 驱动的生图双流程：**直出**（图发当前会话）与**跑图
 **直出 = 整段直写 `args_prompt.json`，不拼接、不调 set_character.py**。模型直接扩写一整段正面提示词（场景+角色+画师融合），write_file 写 `args_prompt.json`（`{"prompt": "整段"}`）→ run_latest 读它进正面节点。**只有 anima 跑图才走 set_character.py 三文件**。
 
 1. **探活 ComfyUI**（未启先拉起）
-2. **确认模型**：Anima（动漫/二次元）
-3. **横竖自动判断（不问用户）**：单人站立/全身/特写/竖构图 → 竖；多人/风景/建筑/宽场景/动作 → 横。尺寸：Anima 横 1536×864 竖 864×1536。判断错等用户出图后纠正
-4. **角色处理（查索引/随机，但结果写进整段文本）**：
+2. **横竖自动判断（不问用户）**：单人站立/全身/特写/竖构图 → 竖；多人/风景/建筑/宽场景/动作 → 横。尺寸：Anima 横 1536×864 竖 864×1536。判断错等用户出图后纠正
+3. **角色处理（查索引/随机，但结果写进整段文本）**：
    - 需求带角色名 → 查 danbooru 索引验证角色 tag（`tag_lookup.py`；中文先翻译英文再查）；没指定画师就随机抽画师（`random_char.py --artist`）——**角色+画师都写进整段正面文本开头**（如 `furina_(genshin_impact) @dairi, masterpiece, ...`）
    - **「画这角色最多的画师」需求** → 先 `artist_rank.py "<角色tag>"` 拉真实排行（热门角色约 40s-2min，提前告诉用户）→ 选画师规则：**两榜都靠前（数量+平均分前 20）= 代表性画师**；只说「多」=数量榜 top；「精致/高质量」=平均分榜；带风格约束从榜里按已知画风挑 → @tag 写进整段开头
    - 需求带系列+随机（如「原神角色，随机角色」）→ 按系列加权随机（本地索引 `WHERE category='characters' AND tag LIKE '%<系列>%'` 按 count 加权；系列关键词：genshin/touhou/arknights/honkai/wuthering 等），抽完照常随机画师再拼
    - 纯描述无角色 → 整段里不写角色名，直接场景描述
-5. **写整段正面**：扩写英文一整段（角色+画师+场景+质量词融合）→ write_file 写 `args_prompt.json`（`{"prompt": "..."}`）。**角色名写进整段没问题**（整段直写就是模型自己融合）。**整段里的场景标签同样先验证 canonical**（规则同跑图第 4 步）
-6. **负面词**：基础 = 并集负面模板（12 词 ∪ 工作流节点词，见「工作流/模板知识」）+ **动态互斥负面**（正面选了互斥组一侧，另一侧进负面，按场景挑组不全塞）；无特殊需求**先删残留** args_negative.json 走模板默认；需扩写才 write_file 写（`{"negative": "..."}`）
-7. **提交**：`python run_latest.py --target anima --mode direct --no-grab --width W --height H`
-8. **发图**：出图路径发当前会话，通知「图好了」（**不带 ✅**，✅ 只用于跑图通知）
+4. **写整段正面**：扩写英文一整段（角色+画师+场景+质量词融合）→ write_file 写 `args_prompt.json`（`{"prompt": "..."}`）。**角色名写进整段没问题**（整段直写就是模型自己融合）。**整段里的场景标签同样先验证 canonical**（规则同跑图第 3 步）
+5. **负面词**：基础 = 并集负面模板（12 词 ∪ 工作流节点词，见「工作流/模板知识」）+ **动态互斥负面**（正面选了互斥组一侧，另一侧进负面，按场景挑组不全塞）；无特殊需求**先删残留** args_negative.json 走模板默认；需扩写才 write_file 写（`{"negative": "..."}`）
+6. **提交**：`python run_latest.py --target anima --mode direct --no-grab --width W --height H`
+7. **发图**：出图路径发当前会话，通知「图好了」（**不带 ✅**，✅ 只用于跑图通知）
 
 ## 跑图流程（run-image）
 
-**一问一答逐步走，严禁猜默认值**：逐个问 ① 模型 → ② 场景 → ③ 角色画师（或 random）。**禁止**：默认模型、没问就随机、自编场景、一次猜完全部、三问连发。用户连发多条「跑图」≠ 全随机——重申口令，继续走问答。
+**一问一答逐步走，严禁猜默认值**：逐个问 ① 场景 → ② 角色画师（或 random）。**禁止**：没问就随机、自编场景、一次猜完全部、两问连发。用户连发多条「跑图」≠ 全随机——重申口令，继续走问答。
 
 1. **探活 ComfyUI**（同上）
-2. **确认模型**：Anima（动漫/二次元）→ 定工作流
-3. **横竖不问**：根据场景描述自动判断（同直出规则）
-4. **问场景** → 扩写英文（**不含角色名**）→ write_file 写 args_description.json
+2. **横竖不问**：根据场景描述自动判断（同直出规则）
+3. **问场景** → 扩写英文（**不含角色名**）→ write_file 写 args_description.json
    - 正面格式：短质量前缀（masterpiece, very aesthetic, best quality, nsfw）+ **10 个左右内容标签** + `natural language: ...` 自然语言段。NSFW 必须带 nsfw 标签激活，别堆 30+ 标签
    - **内容标签必须验证 canonical，禁止直接写英文短语**：描述里的每个内容标签先查索引，无匹配的词换 canonical 或只写进 natural language 段。实测映射：`evening dress`→`evening_gown`、`skirt lift`→`skirt_lift`、`city lights`→`city_lights`（下划线式=canonical）；普通单词直接可用；查索引输出「无匹配」时提示的「下划线风格词」就是 canonical。natural language 段可自由描述，不受 tag 约束
    - 姿势/背景/服装词优先用 `anima_tools.py` 查库（姿势 297 条 / 背景 1087 条 / 服装 430 条，中英双语，输出英文触发词）
-5. **负面词**（**在问角色画师之前**）→ 基础 = 并集负面模板 + 动态互斥负面（按场景挑组）→ write_file 写 args_negative.json
-6. **问角色画师**（或 random）→ anima：问角色+画师，查索引验证 → `set_character.py "角色 @画师"` 写 args_character.json（三编码器需要角色独立节点）。用户要「画这角色最多的画师」→ 先 `artist_rank.py "<角色tag>"` 查排行再 set_character
-7. **提交**：`python run_latest.py --target anima --mode run --no-grab --width W --height H`
-8. **完成通知**：出图后**默认由 agent 向用户播报**「跑图完成✅」（✅ 在提示语后面；不描述图内容、不说角色/画师/场景）→ 用户去收图会话发「收图」。若已接入消息平台，通知逻辑应写在脚本内（出图后自动发送，见「通知接入示例」）——**不要依赖 agent 手动发**，脚本直跑/其他会话触发时才不会漏
-9. 流程结束只卸载模型（/free），**不关 ComfyUI**
+4. **负面词**（**在问角色画师之前**）→ 基础 = 并集负面模板 + 动态互斥负面（按场景挑组）→ write_file 写 args_negative.json
+5. **问角色画师**（或 random）→ anima：问角色+画师，查索引验证 → `set_character.py "角色 @画师"` 写 args_character.json（三编码器需要角色独立节点）。用户要「画这角色最多的画师」→ 先 `artist_rank.py "<角色tag>"` 查排行再 set_character
+6. **提交**：`python run_latest.py --target anima --mode run --no-grab --width W --height H`
+7. **完成通知**：出图后**默认由 agent 向用户播报**「跑图完成✅」（✅ 在提示语后面；不描述图内容、不说角色/画师/场景）→ 用户去收图会话发「收图」。若已接入消息平台，通知逻辑应写在脚本内（出图后自动发送，见「通知接入示例」）——**不要依赖 agent 手动发**，脚本直跑/其他会话触发时才不会漏
+8. 流程结束只卸载模型（/free），**不关 ComfyUI**
 
 ## 通知接入示例（以 Hermes 为例，QQ 是 Hermes 网关通道）
 
