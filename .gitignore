@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+last_image.json
+workspace/args_*.json
+workspace/_run_*.json
+workspace/_test_*.json
+workspace/args_consumed.txt
+workspace/data/local/*/args.json
+workspace/data/local/*/history/
+runtime/
