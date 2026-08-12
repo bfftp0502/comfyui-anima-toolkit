@@ -190,7 +190,14 @@ def wait_and_find_output(prompt_id: str, timeout_s: int = 600) -> Path:
         except Exception:
             pass
         time.sleep(5)
-    sys.exit("[超时] 等出图超过 10 分钟")
+    # 超时：先取消 ComfyUI 端任务再退出，避免任务残留/写管道卡死
+    try:
+        req = urllib.request.Request(f"{COMFY_API}/interrupt", data=b"", method="POST")
+        urllib.request.urlopen(req, timeout=10)
+        print("⚠️ 等出图超时，已向 ComfyUI 发送 /interrupt 取消任务")
+    except Exception as e:
+        print(f"⚠️ 超时后 /interrupt 失败: {e}")
+    sys.exit("[超时] 等出图超过 10 分钟，已取消 ComfyUI 任务")
 
 
 def free_comfyui_memory():
@@ -287,6 +294,7 @@ def main():
     ap.add_argument("--width", type=int, default=None, help="覆盖宽度（如 832）")
     ap.add_argument("--height", type=int, default=None, help="覆盖高度（如 1216）")
     ap.add_argument("--no-grab", action="store_true", help="跳过 auto_grab_prompt（default 直出/跑图流程用）")
+    ap.add_argument("--no-free", action="store_true", help="跳过跑完后的 /free 卸载（批量连抽用：整批结束后统一释放）")
     args = ap.parse_args()
 
     tpl = TEMPLATES[args.target]
@@ -325,7 +333,8 @@ def main():
         print(f"⚠️ 消费标记写入失败: {e}")
 
     tmp_args.unlink(missing_ok=True)
-    free_comfyui_memory()
+    if not args.no_free:
+        free_comfyui_memory()
 
 
 if __name__ == "__main__":

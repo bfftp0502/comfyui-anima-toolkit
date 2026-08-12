@@ -161,6 +161,16 @@ python scripts/run_latest.py --target anima --mode direct --no-grab --width 864 
 
 > 角色支持指定/随机/按系列随机（genshin、touhou、arknights、wuthering 等），画师支持指定/随机——随机画师风格不可控，抽到不合适的换一个就是。
 
+### 抽卡连抽（gacha_batch.py）
+对 Agent 说「**抽卡**」→ 固定角色批量出图，服装/画师/姿势/背景每张独立随机。适合连续出图挑满意的。
+
+```bash
+python scripts/gacha_batch.py <N> <角色tag> [固定画师@名]   # 例：5 张纳西妲
+python scripts/gacha_batch.py 5 nahida_(genshin_impact)
+```
+
+出图自动复制改名到 `<输出目录>/change_name/`（原图保留），批末统一释放显存。内置规则：**画师池**（固定角色时自动拉「画过该角色的画师」top100 加权随机，无网络/超时自动回退全量随机）、**服装互斥**二选一（矛盾条目选到的进正面、没选到的进负面）、**单人图剔除双人姿势**、**角色外观自动锚定**（characters 表精确匹配，查不到不填）。
+
 ## 五、访问方式：局域网 + 远程
 
 - **局域网**：同一 Wi-Fi 下，手机/平板浏览器直接开 **Hermes Web 界面**（hermes-webui，8787 端口）和 ComfyUI 前端（8188），操作/收图全在移动端完成——这是本方案的主场景，实测稳定

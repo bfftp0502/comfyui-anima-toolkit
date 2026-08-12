@@ -6,7 +6,7 @@ import subprocess, sys, time, urllib.request
 from pathlib import Path
 
 COMFY = Path(os.environ.get("COMFY_DIR", Path.home() / "ComfyUI"))
-PY = Path(os.environ.get("COMFY_PY", COMFY / "venv" / "Scripts" / "python.exe"))
+PY = Path(os.environ.get("COMFY_PY", COMFY / "venv" / "Scripts" / "pythonw.exe"))  # pythonw = 无窗口启动（有窗口会被手动关闭 → window-CLOSE 杀 ComfyUI）
 LOG = Path(os.environ.get("COMFY_LOG", COMFY / "comfy_detached.log"))
 PORT = int(os.environ.get("COMFY_PORT", "8188"))
 
