@@ -59,8 +59,8 @@ ComfyUI 驱动的生图双流程：**直出**（图发当前会话）与**跑图
 1. **探活 ComfyUI**（同上）
 2. **横竖不问**：根据场景描述自动判断（同直出规则）
 3. **问场景** → 扩写英文（**不含角色名**）→ write_file 写 args_description.json
-   - 正面格式：短质量前缀（masterpiece, very aesthetic, best quality, nsfw）+ **10 个左右内容标签** + `natural language: ...` 自然语言段。NSFW 必须带 nsfw 标签激活，别堆 30+ 标签
-   - **内容标签必须验证 canonical，禁止直接写英文短语**：描述里的每个内容标签先查索引，无匹配的词换 canonical 或只写进 natural language 段。实测映射：`evening dress`→`evening_gown`、`skirt lift`→`skirt_lift`、`city lights`→`city_lights`（下划线式=canonical）；普通单词直接可用；查索引输出「无匹配」时提示的「下划线风格词」就是 canonical。natural language 段可自由描述，不受 tag 约束
+   - 正面格式：短质量前缀（masterpiece, very aesthetic, best quality, nsfw）+ **10 个左右内容标签** + 一句自然语言描述（直接写，不加 `natural language:` 之类前缀标记）。NSFW 必须带 nsfw 标签激活，别堆 30+ 标签
+   - **内容标签必须验证 canonical，禁止直接写英文短语**：描述里的每个内容标签先查索引，无匹配的词换 canonical 或只写进自然语言描述。实测映射：`evening dress`→`evening_gown`、`skirt lift`→`skirt_lift`、`city lights`→`city_lights`（下划线式=canonical）；普通单词直接可用；查索引输出「无匹配」时提示的「下划线风格词」就是 canonical。自然语言描述可自由写，不受 tag 约束
    - 姿势/背景/服装词优先用 `anima_tools.py` 查库（姿势 297 条 / 背景 1087 条 / 服装 430 条，中英双语，输出英文触发词）
 4. **负面词**（**在问角色画师之前**）→ 基础 = 并集负面模板 + 动态互斥负面（按场景挑组）→ write_file 写 args_negative.json
 5. **问角色画师**（或 random）→ anima：问角色+画师，查索引验证 → `set_character.py "角色 @画师"` 写 args_character.json（三编码器需要角色独立节点）。用户要「画这角色最多的画师」→ 先 `artist_rank.py "<角色tag>"` 查排行再 set_character
@@ -133,7 +133,7 @@ python scripts/gacha_batch.py 5 nahida_(genshin_impact)
 
 ## 工作流/模板知识（run_latest.py TEMPLATES）
 
-> 📌 **提示词组织**：扩写前按槽位顺序组织：质量前缀 → 人数/性别 → 外观 → 服饰/状态 → 姿势/动作 → 表情/反应 → 镜头 → 场景 → 氛围细节 → natural language 段。规则管组织已有词，不编造没有的词；素材以查库为准，库里没有的短语不硬拼。
+> 📌 **提示词组织**：扩写前按槽位顺序组织：质量前缀 → 人数/性别 → 外观 → 服饰/状态 → 姿势/动作 → 表情/反应 → 镜头 → 场景 → 氛围细节 → 一句自然语言描述。规则管组织已有词，不编造没有的词；素材以查库为准，库里没有的短语不硬拼。
 
 | target | direct（直出） | run（跑图） | 节点 |
 |---|---|---|---|
@@ -147,7 +147,7 @@ python scripts/gacha_batch.py 5 nahida_(genshin_impact)
 
 - [ ] ComfyUI 探活通过（或已拉起并在提交前就绪）
 - [ ] 直出：args_prompt.json 已覆盖新整段；跑图：三文件就位（set_character 写 character + 直接写 description/negative）
-- [ ] 描述/整段不含未验证标签；跑图描述不含角色名、含质量前缀 + ~10 标签 + natural language 段
+- [ ] 描述/整段不含未验证标签；跑图描述不含角色名、含质量前缀 + ~10 标签 + 自然语言描述
 - [ ] 提交成功，日志出现「出图完成」与输出路径
 - [ ] 跑图流程：agent 已向用户播报「跑图完成✅」（✅ 在提示语后面，不描述图内容）
 - [ ] 收图：读取路径发图到收图会话，无重复发送

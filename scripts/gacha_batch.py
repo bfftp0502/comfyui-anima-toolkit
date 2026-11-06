@@ -318,7 +318,7 @@ def main():
                          w(bg.lower(), WEIGHTS["bg"]),
                          w(artist, WEIGHTS["artist"])])
         desc = (f"{', '.join(p for p in head_parts if p)}, "
-                f"natural language: a girl {nl_app}, "
+                f"a girl {nl_app}, "
                 f"wearing {cloth}, set in {bg}, lively and charming")
         negative = NEG_STD
         if extra_neg:
