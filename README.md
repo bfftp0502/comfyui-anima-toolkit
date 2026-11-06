@@ -155,9 +155,9 @@ python scripts/run_latest.py --target anima --mode direct --no-grab --width 864 
 | `--seed N` | 固定 seed（复现、对比同一张；默认每张随机） |
 | `--width` / `--height` | 覆盖尺寸（竖 864×1536、横 1536×864） |
 
-### 冒烟测试（固定提示词 + 示例图）
+### 冒烟测试（固定提示词）
 
-部署完先跑这一条，确认链路真的通。测试词固定在 `tests/smoke_prompt.json`，**提示词和下面的示例图是同一组参数**（seed 20261106、864×1536、direct 模式）：
+部署完先跑这一条，确认链路真的通。测试词固定在 `tests/smoke_prompt.json`——**纯场景、不指定角色/画师**，只验证「提交 → 出图 → 落盘」：
 
 ```powershell
 Copy-Item tests\smoke_prompt.json workspace\args_prompt.json
@@ -166,11 +166,7 @@ python scripts\run_latest.py --target anima --mode direct --no-grab --seed 20261
 
 **判定**：日志打出 `✅ 出图完成: <路径>`，且该文件存在；尺寸 864×1536，RTX 工作流 2x 超分后是 1728×3072。
 
-<img src="examples/smoke-test.jpg" alt="冒烟测试示例：furina_(genshin_impact) @dairi, sitting on a chair, city street at night" width="420">
-
-图里的组合：`furina_(genshin_impact)` + `@dairi` + `sitting on a chair, city street at night` + 质量词 + natural language 段。**姿势/背景用空格写法**，角色 tag 保留下划线 canonical——这也是仓库的既定规范。
-
-> 这张图就是按上面命令、上面 seed 跑出来的，所以「提示词 ↔ 图」对得上；换了 seed 或改了提示词，图会不一样。
+> 测试词故意不带角色和画师——角色/画师属于具体需求，测试只保证流程；要验证角色还原，用「三种用法」里的直出或跑图。
 
 ### 可选环境变量
 
