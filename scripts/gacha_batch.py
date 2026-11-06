@@ -317,9 +317,8 @@ def main():
                          w(pose.lower(), WEIGHTS["pose"]),
                          w(bg.lower(), WEIGHTS["bg"]),
                          w(artist, WEIGHTS["artist"])])
-        desc = (f"{', '.join(p for p in head_parts if p)}\n"
-                f"a girl {nl_app}, "
-                f"wearing {cloth}, set in {bg}, lively and charming")
+        body = f"a girl {nl_app} wearing {cloth} set in {bg} lively and charming".replace(", ", " ")
+        desc = f"{', '.join(p for p in head_parts if p)}\n{body}"
         negative = NEG_STD
         if extra_neg:
             negative += ", " + ", ".join(extra_neg)
