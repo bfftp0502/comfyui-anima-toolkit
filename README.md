@@ -129,7 +129,7 @@ curl http://127.0.0.1:8188/system_stats   # 有 JSON 返回 = ComfyUI 就绪
 # ① 写提示词文件 workspace/args_prompt.json（直出格式：整段正面，角色+画师+场景+质量词融合）
 #    ⚠️ 必须无 BOM：PowerShell 5.1 的 Set-Content -Encoding utf8 会加 BOM，run_latest 会报
 #    「Unexpected UTF-8 BOM」——用下面这行 python 写，或 [IO.File]::WriteAllText + UTF8Encoding($false)
-python -c "import json;open(r'workspace/args_prompt.json','w',encoding='utf-8').write(json.dumps({'prompt':'masterpiece, very aesthetic, best quality, 1girl, furina_(genshin_impact) @dairi, standing, looking at viewer, city street at night, a girl standing under streetlights, soft lighting'}, ensure_ascii=False))"
+python -c "import json;open(r'workspace/args_prompt.json','w',encoding='utf-8').write(json.dumps({'prompt':'masterpiece, very aesthetic, best quality, 1girl, furina_(genshin_impact) @dairi, standing, looking at viewer, city street at night,\na girl standing under streetlights, soft lighting'}, ensure_ascii=False))"
 
 # ② 提交（anima 直出；尺寸 --width/--height 可选）
 python scripts/run_latest.py --target anima --mode direct --no-grab --width 864 --height 1536

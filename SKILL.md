@@ -59,7 +59,7 @@ ComfyUI 驱动的生图双流程：**直出**（图发当前会话）与**跑图
 1. **探活 ComfyUI**（同上）
 2. **横竖不问**：根据场景描述自动判断（同直出规则）
 3. **问场景** → 扩写英文（**不含角色名**）→ write_file 写 args_description.json
-   - 正面格式：短质量前缀（masterpiece, very aesthetic, best quality, nsfw）+ **10 个左右内容标签** + 一句自然语言描述（直接写，不加 `natural language:` 之类前缀标记）。NSFW 必须带 nsfw 标签激活，别堆 30+ 标签
+   - 正面格式：短质量前缀（masterpiece, very aesthetic, best quality, nsfw）+ **10 个左右内容标签** + 一句自然语言描述（直接写，不加 `natural language:` 之类前缀标记；标签区与描述句之间用换行分隔）。NSFW 必须带 nsfw 标签激活，别堆 30+ 标签
    - **内容标签必须验证 canonical，禁止直接写英文短语**：描述里的每个内容标签先查索引，无匹配的词换 canonical 或只写进自然语言描述。实测映射：`evening dress`→`evening_gown`、`skirt lift`→`skirt_lift`、`city lights`→`city_lights`（下划线式=canonical）；普通单词直接可用；查索引输出「无匹配」时提示的「下划线风格词」就是 canonical。自然语言描述可自由写，不受 tag 约束
    - 姿势/背景/服装词优先用 `anima_tools.py` 查库（姿势 297 条 / 背景 1087 条 / 服装 430 条，中英双语，输出英文触发词）
 4. **负面词**（**在问角色画师之前**）→ 基础 = 并集负面模板 + 动态互斥负面（按场景挑组）→ write_file 写 args_negative.json
