@@ -56,6 +56,7 @@ POSE_BAD = ["another", "carry me", "piggyback", "bridal", "handholding", "holdin
             "intercourse", "sex"]
 
 # 易出多人 / 风格不稳的画师降权 ×0.3（按画师名子串匹配，可自行追加）
+# 注意：只有「画师池加权」那段代码启用时才生效，默认是等权随机
 LOW_WEIGHT_ARTISTS = ["utori"]
 
 # 服装库混入的非服装条目（动作/持械/机械/角色主题），命中重抽——是「条目类型」过滤，不是内容分级
@@ -241,9 +242,12 @@ def main():
             cands = [(n, c) for n, c in artist_pool if n not in used_artists]
             if cands:
                 names = [n for n, _ in cands]
-                weights = [max(c, 1) * (0.3 if any(a in n.lower() for a in LOW_WEIGHT_ARTISTS) else 1)
-                           for n, _ in cands]
-                artist = "@" + random.choices(names, weights=weights, k=1)[0]
+                # ── 权重相关（默认注释，等权随机）──
+                # 想让「画得多的画师」更容易被抽到，去掉下两行注释即可；
+                # weights = [max(c, 1) * (0.3 if any(a in n.lower() for a in LOW_WEIGHT_ARTISTS) else 1)
+                #            for n, _ in cands]
+                # artist = "@" + random.choices(names, weights=weights, k=1)[0]
+                artist = "@" + random.choice(names)
                 used_artists.add(artist[1:])
             else:
                 artist = run([py, anima_tools, "arand"])
@@ -254,9 +258,11 @@ def main():
         bg = pick([py, anima_tools, "background-rand"], BAD_BG)
 
         cloth_tags = ", ".join(p.strip() for p in cloth.split("&"))  # 复合服装拆 & 成独立标签
+        # ── 画师权重（默认不加权重）──
+        # 想让画师风格弱一点、角色更像：把下面 f"{artist}, " 换成 f"({artist}:0.5), "
         desc = (f"masterpiece, very aesthetic, best quality, 1girl, solo, {app_tags}"
                 f"{cloth_tags}, {pose.lower().replace(' ', '_')}, {bg.lower().replace(' ', '_')}, "
-                f"({artist}:0.5), "
+                f"{artist}, "
                 f"natural language: a girl {nl_app}, "
                 f"wearing {cloth}, set in {bg}, lively and charming")
         negative = NEG_STD

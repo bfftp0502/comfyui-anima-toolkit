@@ -97,6 +97,8 @@ python scripts/gacha_batch.py 5 nahida_(genshin_impact)
 
 库规模（`data/anima_tools.sqlite`）：画师 40600 / 角色 8001 / 服装 425 / 姿势 303 / 背景 1086。
 
+**库是全的，出什么类型靠「分类 + 权重」控制**：按分类挑提示词、给标签加权重（`(tag:1.2)` / `(tag:0.8)`）即可调方向，不用改脚本。脚本里写死的权重（画师频次加权、`LOW_WEIGHT_ARTISTS` 降权、描述里的 `({artist}:0.5)`）默认注释掉，想用把那几行 `#` 去掉。
+
 ### 跑图 character 语义
 
 | 用户说 | character 处理 |
