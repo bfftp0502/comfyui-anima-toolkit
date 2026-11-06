@@ -14,6 +14,9 @@
   python anima_tools.py crand "genshin" 3     # 系列内加权随机抽 3 个
   python anima_tools.py cloth "礼服"           # 按分类/名称/特征查服装（中英文都行）
   python anima_tools.py cloth-top 10          # 服装库样本
+  python anima_tools.py cloth-rand            # 服装随机抽 1 个（全库）
+  python anima_tools.py pose-rand             # 姿势随机抽 1 个（全库）
+  python anima_tools.py background-rand       # 背景随机抽 1 个（抽卡用）
 """
 import random, sqlite3, sys
 from pathlib import Path
@@ -54,8 +57,14 @@ def artist_random(kw=None):
     c.close()
     if not rows:
         print("无匹配"); return
-    pick = random.choices([r[0] for r in rows],
-                          weights=[max(r[1], 10) for r in rows], k=1)[0]
+    # 带括号画师（别名/社团后缀，特征锚定弱）降权 ×0.3，但不排除
+    weights = []
+    for name, pc in rows:
+        w = max(pc, 10)
+        if "(" in name:
+            w *= 0.3
+        weights.append(w)
+    pick = random.choices([r[0] for r in rows], weights=weights, k=1)[0]
     print(f"@{pick}")
 
 
@@ -104,6 +113,33 @@ def cloth_top(n):
         print(f"◆ {name}（{name_zh}）\n   tags: {tags.strip()}")
 
 
+def cloth_random():
+    c = db()
+    rows = c.execute("SELECT name FROM clothing").fetchall()
+    c.close()
+    if not rows:
+        print("无匹配"); return
+    print(random.choice(rows)[0])
+
+
+def pose_random():
+    c = db()
+    rows = c.execute("SELECT name FROM poses").fetchall()
+    c.close()
+    if not rows:
+        print("无匹配"); return
+    print(random.choice(rows)[0])
+
+
+def bg_random():
+    c = db()
+    rows = c.execute("SELECT name FROM backgrounds").fetchall()
+    c.close()
+    if not rows:
+        print("无匹配"); return
+    print(random.choice(rows)[0])
+
+
 def pose_search(kw, limit=10):
     c = db()
     rows = c.execute(
@@ -150,6 +186,12 @@ def main():
         cloth_search(args[1])
     elif cmd == "cloth-top" and len(args) > 1:
         cloth_top(int(args[1]))
+    elif cmd == "cloth-rand":
+        cloth_random()
+    elif cmd == "pose-rand":
+        pose_random()
+    elif cmd == "background-rand":
+        bg_random()
     elif cmd == "pose" and len(args) > 1:
         pose_search(args[1], int(args[2]) if len(args) > 2 else 10)
     elif cmd == "background" and len(args) > 1:

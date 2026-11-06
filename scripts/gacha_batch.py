@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""普通抽卡连抽 N 张（SFW）：角色固定，服装/画师/姿势/背景每张随机。
+"""抽卡连抽 N 张：角色固定，服装/画师/姿势/背景每张随机（全库抽取，不区分 SFW/R18）。
 用法: python gacha_batch.py <N> <角色tag> [固定画师@名]
   例: python gacha_batch.py 5 nahida_(genshin_impact)
 依赖: 同目录 anima_tools.py / run_latest.py；ComfyUI 运行中
@@ -9,6 +9,13 @@
 import subprocess, json, os, re, datetime, sys, sqlite3, time, shutil, random, base64, urllib.parse, urllib.request
 from pathlib import Path
 
+# Windows 控制台默认 GBK：强制 stdout/stderr 走 UTF-8，避免中文/图标打印崩溃
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 BASE_DIR = Path(__file__).resolve().parent.parent           # 仓库根目录
 SCRIPT_DIR = Path(__file__).resolve().parent                # 脚本目录
 WORKSPACE = Path(os.environ.get("RUN_IMAGE_WORKSPACE", BASE_DIR / "workspace"))
@@ -16,12 +23,15 @@ ANIMA_DB = BASE_DIR / "data" / "anima_tools.sqlite"
 OUT_DIR = Path(os.environ.get("COMFY_OUTPUT_DIR", Path.home() / "ComfyUI" / "output")) / "change_name"
 ENV_FILE = Path(os.environ.get("DANBOORU_ENV", Path.home() / ".env"))
 PROXY = os.environ.get("HTTPS_PROXY", "") or os.environ.get("http_proxy", "") or ""
+COMFY_API = os.environ.get("COMFY_API", "http://127.0.0.1:8188").rstrip("/")
 
+# 背景过滤：猎奇/脏乱场景、混进来的服装条目、拼音残留条目
 BAD_BG = ["trypophobia", "toilet", "severed", "blood", "corpse", "death",
           "gore", "dead", "bathroom", "shower", "skin", "ghost",
           "outfit", "clothes", "clothing", "dress", "skirt", "shirt", "jacket",
           "coat", "pants", "uniform", "costume", "swimsuit", "bikini", "lingerie", "underwear",
-          "tianliang", "duohe", "fangdongye"]
+          "tianliang", "duohe", "fangdongye",           # 背景库混入的拼音残留条目
+          "internal organs", "organs"]                   # 猎奇内脏
 
 NEG_STD = ("lowres, bad anatomy, bad hands, worst quality, blurry, watermark, signature, "
            "text, monochrome, oil painting, greasy, glossy, score_1, score_2, score_3, "
@@ -38,14 +48,29 @@ CLOTH_CONFLICT = [
       "skirt", "shirt", "jacket", "bikini", "swimsuit", "bodysuit", "costume", "maid"]),
 ]
 
-# 姿势过滤：双人互动姿势（单人图必错）+ 异常字符条目
+# 姿势过滤：双人互动 / 需要第二人的姿势（单人图必错）+ 异常字符条目
 POSE_BAD = ["another", "carry me", "piggyback", "bridal", "handholding", "holding hands",
             "kissing", "embrace", "cuddling", "lap pillow", "face sitting",
-            "scissoring", "tribadism", "making out", "sixty nine"]
+            "scissoring", "tribadism", "making out", "sixty nine",
+            "penetration", "handjob", "fellatio", "blowjob", "cunnilingus",
+            "intercourse", "sex"]
+
+# 易出多人 / 风格不稳的画师降权 ×0.3（按画师名子串匹配，可自行追加）
+LOW_WEIGHT_ARTISTS = ["utori"]
+
+# 服装库混入的非服装条目（动作/持械/机械/角色主题），命中重抽——是「条目类型」过滤，不是内容分级
+CLOTH_EXTRA_BAD = ["holding", "carry", "gun", "rifle", "sword", "polearm", "revolver",
+                   "hammer", "axe", "shield", "weapon", "ar-15", "assault", "lance", "blade",
+                   "pistol", "katana", "scepter", "cyborg", "mechanical", "machinery", "mecha",
+                   "cyberpunk", "cyberwitch", "robot", "ninja", "valkyrie", "necromancer",
+                   "wizard", "knight", "solider", "soldier", "geisha", "onmyoji", "vampire",
+                   "slime", "bride", "detective", "ballerina", "bloodborne", "fire keeper",
+                   "deerstalker", "warhammer", "demon", "angel wings", "cat girl"]
 
 
 def run(cmd):
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    r = subprocess.run(cmd, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=60)
     return r.stdout.strip()
 
 
@@ -112,24 +137,25 @@ def split_conflict_cloth(cloth):
 
 
 def load_artist_pool(char_tag):
-    """拉画过该角色的画师排行（频次榜近似）：20s 内多页拉取（每页 200 张，高分优先），
+    """拉画过该角色的画师排行（频次榜近似）：18s 内多页拉取（每页 200 张，高分优先），
     按出现频次加权随机用。无网络/失败/超时 → None，回退全量 arand"""
     try:
         creds = {}
-        for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if "=" in line and not line.startswith("#"):
-                k, v = line.split("=", 1)
-                creds[k.strip()] = v.strip()
+        if ENV_FILE.exists():
+            for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if "=" in line and not line.startswith("#"):
+                    k, v = line.split("=", 1)
+                    creds[k.strip()] = v.strip()
         user = os.environ.get("DANBOORU_USER", "") or creds.get("DANBOORU_USER", "")
         key = os.environ.get("DANBOORU_API_KEY", "") or creds.get("DANBOORU_API_KEY", "")
         if not (user and key):
             return None
         freq = {}
         page_id = None
-        deadline = time.time() + 18  # 20s 内兜底
+        deadline = time.time() + 18  # 硬截止，避免连抽开始前卡太久
         while time.time() < deadline:
-            params = {"tags": char_tag + " order:score", "limit": 200}  # order:score 高分优先，前几页即高质量画师榜
+            params = {"tags": char_tag + " order:score", "limit": 200}
             if page_id:
                 params["page"] = f"b{page_id}"
             url = "https://danbooru.donmai.us/posts.json?" + urllib.parse.urlencode(params)
@@ -181,88 +207,104 @@ def char_appearance(char_tag):
     return (h or None), (e or None)
 
 
-os.makedirs(OUT_DIR, exist_ok=True)
-N = int(sys.argv[1]) if len(sys.argv) > 1 else 5
-CHAR = sys.argv[2] if len(sys.argv) > 2 else "furina_(genshin_impact)"
-ARTIST = sys.argv[3] if len(sys.argv) > 3 else ""  # 固定画师（传 @名；空=画师池/随机）
-hair, eye = char_appearance(CHAR)
-appearance = ", ".join(x for x in (hair, eye) if x)
-app_tags = f"{appearance}, " if appearance else ""
-nl_app = f"with {appearance}" if appearance else ""
-print(f"角色: {CHAR} | 外观锚定: {appearance or '库缺字段'}")
+def main():
+    os.makedirs(OUT_DIR, exist_ok=True)
+    N = int(sys.argv[1]) if len(sys.argv) > 1 else 5
+    CHAR = sys.argv[2] if len(sys.argv) > 2 else "furina_(genshin_impact)"
+    ARTIST = sys.argv[3] if len(sys.argv) > 3 else ""  # 固定画师（传 @名；空=画师池/随机）
+    py = sys.executable
+    anima_tools = str(SCRIPT_DIR / "anima_tools.py")
 
-# 固定角色 → 尝试拉「画过该角色的画师池」；失败回退 arand
-artist_pool = load_artist_pool(CHAR) if not ARTIST else None
-used_artists = set()
-if artist_pool:
-    print(f"▶ 画师池加载成功（{len(artist_pool)} 位画过{CHAR.split('(')[0]}的画师，加权随机）")
-else:
-    print("▶ 画师池不可用（无网络/超时），回退全量 arand 随机")
+    hair, eye = char_appearance(CHAR)
+    appearance = ", ".join(x for x in (hair, eye) if x)
+    app_tags = f"{appearance}, " if appearance else ""
+    nl_app = f"with {appearance}" if appearance else ""
+    print(f"角色: {CHAR} | 外观锚定: {appearance or '库缺字段'}")
 
-results = []
-for i in range(N):
-    cloth = run([str(SCRIPT_DIR / "anima_tools.py"), "cloth-rand"])
-    extra_neg = []
-    if conflict_both(cloth):
-        cloth, extra_neg = split_conflict_cloth(cloth)  # 互斥二选一：保留侧进正面，丢弃侧进负面
-    if ARTIST:
-        artist = ARTIST
-    elif artist_pool:
-        cands = [(n, c) for n, c in artist_pool if n not in used_artists]
-        if cands:
-            names = [n for n, _ in cands]
-            weights = [max(c, 1) for _, c in cands]
-            artist = "@" + random.choices(names, weights=weights, k=1)[0]
-            used_artists.add(artist[1:])
-        else:
-            artist = run([str(SCRIPT_DIR / "anima_tools.py"), "arand"])
+    # 固定角色 → 尝试拉「画过该角色的画师池」；失败回退 arand
+    artist_pool = load_artist_pool(CHAR) if not ARTIST else None
+    used_artists = set()
+    if artist_pool:
+        print(f"▶ 画师池加载成功（{len(artist_pool)} 位画过{CHAR.split('(')[0]}的画师，加权随机）")
     else:
-        artist = run([str(SCRIPT_DIR / "anima_tools.py"), "arand"])
-    pose = pick([str(SCRIPT_DIR / "anima_tools.py"), "pose-rand"], bad_list=POSE_BAD, alpha_only=True, valid_only=True)
-    bg = pick([str(SCRIPT_DIR / "anima_tools.py"), "background-rand"], BAD_BG)
+        print("▶ 画师池不可用（无网络/超时/未配 danbooru 凭据），回退全量 arand 随机")
 
-    cloth_tags = ", ".join(p.strip() for p in cloth.split("&"))  # 复合服装拆 & 成独立标签
-    desc = (f"masterpiece, very aesthetic, best quality, 1girl, solo, {app_tags}"
-            f"{cloth_tags}, {pose.lower().replace(' ', '_')}, {bg.lower().replace(' ', '_')}, {artist}, "
-            f"natural language: a girl {nl_app}, "
-            f"wearing {cloth}, set in {bg}, lively and charming")
-    files = {
-        "args_character.json": {"character": CHAR},
-        "args_description.json": {"description": desc},
-        "args_negative.json": {"negative": NEG_STD + (", " + ", ".join(extra_neg) if extra_neg else "")},
-    }
-    for fn, obj in files.items():
-        with open(os.path.join(WORKSPACE, fn), "w", encoding="utf-8") as f:
-            json.dump(obj, f, ensure_ascii=False)
+    results = []
+    for i in range(N):
+        cloth = pick([py, anima_tools, "cloth-rand"], bad_list=CLOTH_EXTRA_BAD)
+        extra_neg = []
+        if conflict_both(cloth):
+            cloth, extra_neg = split_conflict_cloth(cloth)  # 互斥二选一：保留侧进正面，丢弃侧进负面
+        if ARTIST:
+            artist = ARTIST
+        elif artist_pool:
+            cands = [(n, c) for n, c in artist_pool if n not in used_artists]
+            if cands:
+                names = [n for n, _ in cands]
+                weights = [max(c, 1) * (0.3 if any(a in n.lower() for a in LOW_WEIGHT_ARTISTS) else 1)
+                           for n, _ in cands]
+                artist = "@" + random.choices(names, weights=weights, k=1)[0]
+                used_artists.add(artist[1:])
+            else:
+                artist = run([py, anima_tools, "arand"])
+        else:
+            artist = run([py, anima_tools, "arand"])
+        pose = pick([py, anima_tools, "pose-rand"], bad_list=POSE_BAD,
+                    alpha_only=True, valid_only=True)
+        bg = pick([py, anima_tools, "background-rand"], BAD_BG)
 
-    r = subprocess.run([str(SCRIPT_DIR / "run_latest.py"), "--target", "anima",
-                        "--mode", "run", "--no-grab", "--no-notify", "--no-free",
-                        "--width", "864", "--height", "1536"],
-                       capture_output=True, text=True, timeout=610, cwd=str(WORKSPACE))
-    out = r.stdout + r.stderr
-    m = re.search(r"出图完成: (.+?)\n", out)
-    if not m:
-        print(f"[{i+1}] FAILED: {out[-300:]}")
-        results.append(None)
-        continue
-    src = m.group(1).strip()
-    time.sleep(1)  # 出图后等 1 秒再复制改名，给 ComfyUI 前端轮询 output 留窗口
-    ts = datetime.datetime.now().strftime("%Y%m%d%H%M")
-    new = os.path.join(OUT_DIR, f"anima-{safe_name(CHAR)}-{safe_name(artist)}-{ts}.png")
-    shutil.copy2(src, new)  # 复制到 change_name 并改名；原图保留在输出目录
-    results.append(new)
-    print(f"[{i+1}/{N}] {cloth} | {artist} | {pose} | {bg}\n    -> {new}")
+        cloth_tags = ", ".join(p.strip() for p in cloth.split("&"))  # 复合服装拆 & 成独立标签
+        desc = (f"masterpiece, very aesthetic, best quality, 1girl, solo, {app_tags}"
+                f"{cloth_tags}, {pose.lower().replace(' ', '_')}, {bg.lower().replace(' ', '_')}, "
+                f"({artist}:0.5), "
+                f"natural language: a girl {nl_app}, "
+                f"wearing {cloth}, set in {bg}, lively and charming")
+        negative = NEG_STD
+        if extra_neg:
+            negative += ", " + ", ".join(extra_neg)
+        files = {
+            "args_character.json": {"character": CHAR},
+            "args_description.json": {"description": desc},
+            "args_negative.json": {"negative": negative},
+        }
+        for fn, obj in files.items():
+            with open(os.path.join(WORKSPACE, fn), "w", encoding="utf-8") as f:
+                json.dump(obj, f, ensure_ascii=False)
 
-# 整批结束统一释放显存（连抽不逐张 /free，省模型重载）
-try:
-    req = urllib.request.Request("http://127.0.0.1:8188/free",
-                                 data=json.dumps({"unload_models": True, "free_memory": True}).encode(),
-                                 headers={"Content-Type": "application/json"})
-    urllib.request.urlopen(req, timeout=15)
-    print("✅ 批次结束已释放显存（/free）")
-except Exception as e:
-    print(f"⚠️ 批次结束 /free 失败: {e}")
+        r = subprocess.run([py, str(SCRIPT_DIR / "run_latest.py"), "--target", "anima",
+                            "--mode", "run", "--no-grab", "--no-free",
+                            "--width", "864", "--height", "1536"],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=610, cwd=str(WORKSPACE))
+        out = r.stdout + r.stderr
+        m = re.search(r"出图完成: (.+?)\n", out)
+        if not m:
+            print(f"[{i+1}] FAILED: {out[-300:]}")
+            results.append(None)
+            continue
+        src = m.group(1).strip()
+        time.sleep(1)  # 出图后等 1 秒再复制改名，给 ComfyUI 前端轮询 output 留窗口
+        ts = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        new = os.path.join(OUT_DIR, f"anima-{safe_name(CHAR)}-{safe_name(artist)}-{ts}.png")
+        shutil.copy2(src, new)  # 复制到 change_name 并改名；原图保留在输出目录
+        results.append(new)
+        print(f"[{i+1}/{N}] {cloth} | {artist} | {pose} | {bg}\n    -> {new}")
 
-print("=== DONE ===")
-for p in results:
-    if p: print(p)
+    # 整批结束统一释放显存（连抽不逐张 /free，省模型重载）
+    try:
+        req = urllib.request.Request(f"{COMFY_API}/free",
+                                     data=json.dumps({"unload_models": True, "free_memory": True}).encode(),
+                                     headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=15)
+        print("✅ 批次结束已释放显存（/free）")
+    except Exception as e:
+        print(f"⚠️ 批次结束 /free 失败: {e}")
+
+    print("=== DONE ===")
+    for p in results:
+        if p:
+            print(p)
+
+
+if __name__ == "__main__":
+    main()

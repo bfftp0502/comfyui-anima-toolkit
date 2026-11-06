@@ -17,22 +17,25 @@ import argparse
 import json
 import os
 import random
-import shutil
 import subprocess
 import sys
 import time
 import urllib.request
 from pathlib import Path
 
+# Windows 控制台默认 GBK：强制 stdout/stderr 走 UTF-8，避免中文/图标打印崩溃
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 # ===== 部署配置（环境变量可覆盖；未配置时按仓库相对位置/默认值）=====
 BASE_DIR = Path(__file__).resolve().parent.parent          # 仓库根目录（comfyui-anima-toolkit/）
 SCRIPT_DIR = Path(__file__).resolve().parent               # 脚本目录（comfyui-anima-toolkit/scripts/）
 WORKSPACE = Path(os.environ.get("RUN_IMAGE_WORKSPACE", BASE_DIR / "workspace"))
-COMFY_API = "http://127.0.0.1:8188"
+COMFY_API = os.environ.get("COMFY_API", "http://127.0.0.1:8188").rstrip("/")
 OUTPUT_DIR = Path(os.environ.get("COMFY_OUTPUT_DIR", Path.home() / "ComfyUI" / "output"))
-HERMES = os.environ.get("HERMES_BIN") or shutil.which("hermes") or "hermes"
-QQ_OPENID = os.environ.get("QQ_OPENID", "")                 # 未配置 → 通知降级为仅打印（agent 播报）
-QQ_TARGET = f"qqbot:{QQ_OPENID}" if QQ_OPENID else None
 WEBUI_SESSIONS = os.environ.get("WEBUI_SESSIONS", "")       # 未配置 → 跳过自动抓取
 ARGS_FILE = WORKSPACE / "args_gen.json"  # 旧单文件（兼容回退）
 CHAR_FILE = WORKSPACE / "args_character.json"  # 角色+画师（独立文件，anima run 专用）
@@ -44,8 +47,8 @@ PROMPT_FILE = WORKSPACE / "args_prompt.json"  # 整段正面（anima direct 专�
 # ⚠️ 用户定稿：生图流程只有两个 CLIPTextEncode（正面合并+负面）；跑图有三个（11/4 角色 + 66 描述 + 负面），67 ConditioningCombine(角色,描述) → positive
 TEMPLATES = {
     "anima": {
-        "workflow": "anima-txt2img-aesthetic-lora",       # direct（生图/直出）：双编码器
-        "workflow_run": "anima-txt2img-aesthetic-lora-run",  # run（跑图）：三编码器 + Combine
+        "workflow": os.environ.get("ANIMA_WORKFLOW", "anima-txt2img-aesthetic-lora"),       # direct（生图/直出）：双编码器
+        "workflow_run": os.environ.get("ANIMA_WORKFLOW_RUN", "anima-txt2img-aesthetic-lora-run"),  # run（跑图）：三编码器 + Combine
         "char_id": "11",
         "desc_id": None,        # direct：描述并入角色节点
         "desc_id_run": "66",    # run：描述独立节点
@@ -54,6 +57,9 @@ TEMPLATES = {
         "negative": "lowres, bad anatomy, bad hands, worst quality, blurry, watermark, signature, text, monochrome, oil painting, greasy, glossy",
     },
 }
+
+_SEED: int | None = None  # --seed 覆盖（复现/对比同一张用）
+
 
 def build_args(target: str, mode: str = "direct", width: int | None = None, height: int | None = None, batch: int | None = None) -> tuple[dict, Path]:
     """读角色/描述/负面独立文件（三文件定稿），组装对应模板的完整 args（写临时文件）。
@@ -96,7 +102,7 @@ def build_args(target: str, mode: str = "direct", width: int | None = None, heig
             except Exception:
                 pass
 
-        seed = random.randint(1, 2**31 - 1)
+        seed = _SEED if _SEED else random.randint(1, 2**31 - 1)
         args = {f"prompt_{tpl['char_id']}": prompt_text, f"prompt_{tpl['neg_id']}": negative, "seed": seed}
         if width or height:
             args["width"] = width or 0
@@ -137,7 +143,7 @@ def build_args(target: str, mode: str = "direct", width: int | None = None, heig
         except Exception:
             pass
 
-    seed = random.randint(1, 2**31 - 1)
+    seed = _SEED if _SEED else random.randint(1, 2**31 - 1)
     args = {f"prompt_{tpl['neg_id']}": negative, "seed": seed}
     if character:
         args[f"prompt_{tpl['char_id']}"] = character
@@ -161,7 +167,8 @@ def build_args(target: str, mode: str = "direct", width: int | None = None, heig
 
 def submit(workflow: str, args_file: Path) -> str:
     cmd = ["node", "run_workflow_args.js", "submit", f"local/{workflow}", f"./{args_file.name}"]
-    r = subprocess.run(cmd, cwd=WORKSPACE, capture_output=True, text=True, timeout=60)
+    r = subprocess.run(cmd, cwd=WORKSPACE, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=60)
     if r.returncode != 0:
         sys.exit(f"[提交失败] {r.stderr[-500:] or r.stdout[-500:]}")
     return r.stdout
@@ -211,28 +218,6 @@ def free_comfyui_memory():
         print("✅ 已卸载 ComfyUI 模型（/free），显存已释放")
     except Exception as e:
         print(f"⚠️ /free 调用失败: {e}")
-
-
-def notify_qq_done():
-    """跑图（mode=run）完成后 QQ 通知「跑图完成✅」。
-
-    direct（直出）图直接发当前会话，不需要通知；run（跑图）出图在 Web 收图会话，
-    必须通知用户去收图。未配置 QQ_OPENID 时降级为仅打印（由 agent 向用户播报）。
-    """
-    if not QQ_TARGET:
-        print("✅ 出图完成（未配置 QQ_OPENID，由 agent 向用户播报「跑图完成✅」）")
-        return
-    try:
-        r = subprocess.run(
-            [HERMES, "send", "--to", QQ_TARGET, "跑图完成✅"],
-            capture_output=True, text=True, timeout=60,
-        )
-        if r.returncode == 0:
-            print("✅ QQ 通知已发送（跑图完成✅）")
-        else:
-            print(f"⚠️ QQ 通知发送失败: {r.stderr[-200:] or r.stdout[-200:]}")
-    except Exception as e:
-        print(f"⚠️ QQ 通知发送异常: {e}")
 
 
 def find_fallback() -> Path:
@@ -295,7 +280,10 @@ def main():
     ap.add_argument("--height", type=int, default=None, help="覆盖高度（如 1216）")
     ap.add_argument("--no-grab", action="store_true", help="跳过 auto_grab_prompt（default 直出/跑图流程用）")
     ap.add_argument("--no-free", action="store_true", help="跳过跑完后的 /free 卸载（批量连抽用：整批结束后统一释放）")
+    ap.add_argument("--seed", type=int, default=None, help="固定 seed（复现/对比同一张；默认每张随机）")
     args = ap.parse_args()
+    global _SEED
+    _SEED = args.seed
 
     tpl = TEMPLATES[args.target]
     workflow = tpl["workflow_run"] if args.mode == "run" else tpl["workflow"]
@@ -321,9 +309,6 @@ def main():
     subprocess.run([sys.executable, str(SCRIPT_DIR / "image_track.py"), "--record", str(img)],
                    capture_output=True, timeout=30)
     print(f"✅ 出图完成: {img}")
-
-    if args.mode == "run":
-        notify_qq_done()
 
     try:
         if ARGS_FILE.exists():
