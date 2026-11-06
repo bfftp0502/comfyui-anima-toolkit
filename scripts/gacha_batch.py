@@ -59,6 +59,33 @@ POSE_BAD = ["another", "carry me", "piggyback", "bridal", "handholding", "holdin
 # 注意：只有「画师池加权」那段代码启用时才生效，默认是等权随机
 LOW_WEIGHT_ARTISTS = ["utori"]
 
+# ── 提示词各槽位权重（默认全 1.0 = 不加权重，原样写入）──
+# >1 强化、<1 弱化。例如：pose 调 1.2、bg 调 0.8 → 姿势更突出、背景更弱；
+# 想弱化画师风格（让角色更像）把 artist 设 0.5。
+# 注意：库里自带权重的服装条目（如 "(Fedora:1.1)"）权重=1.0 时原样保留，
+#       改槽位权重时会被跳过、不再套一层（避免出现 (x:1.1:1.2) 这种非法写法）。
+WEIGHTS = {
+    "quality": 1.0,      # masterpiece / very aesthetic / best quality
+    "subject": 1.0,      # 1girl / solo
+    "appearance": 1.0,   # 发色/瞳色锚定
+    "cloth": 1.0,        # 服装（复合条目拆 & 后逐个处理）
+    "pose": 1.0,
+    "bg": 1.0,
+    "artist": 1.0,
+}
+
+QUALITY_TAGS = ["masterpiece", "very aesthetic", "best quality"]
+SUBJECT_TAGS = ["1girl", "solo"]
+_WEIGHTED_RE = re.compile(r"\([^()]*:[\d.]+\)$")
+
+
+def w(tag, weight):
+    """给单个标签套权重；权重=1.0 或标签本身已有权重语法时原样返回"""
+    tag = (tag or "").strip()
+    if not tag or abs(weight - 1.0) < 1e-6 or _WEIGHTED_RE.search(tag):
+        return tag
+    return f"({tag}:{weight})"
+
 # 服装库混入的非服装条目（动作/持械/机械/角色主题），命中重抽——是「条目类型」过滤，不是内容分级
 CLOTH_EXTRA_BAD = ["holding", "carry", "gun", "rifle", "sword", "polearm", "revolver",
                    "hammer", "axe", "shield", "weapon", "ar-15", "assault", "lance", "blade",
@@ -218,7 +245,6 @@ def main():
 
     hair, eye = char_appearance(CHAR)
     appearance = ", ".join(x for x in (hair, eye) if x)
-    app_tags = f"{appearance}, " if appearance else ""
     nl_app = f"with {appearance}" if appearance else ""
     print(f"角色: {CHAR} | 外观锚定: {appearance or '库缺字段'}")
 
@@ -257,12 +283,17 @@ def main():
                     alpha_only=True, valid_only=True)
         bg = pick([py, anima_tools, "background-rand"], BAD_BG)
 
-        cloth_tags = ", ".join(p.strip() for p in cloth.split("&"))  # 复合服装拆 & 成独立标签
-        # ── 画师权重（默认不加权重）──
-        # 想让画师风格弱一点、角色更像：把下面 f"{artist}, " 换成 f"({artist}:0.5), "
-        desc = (f"masterpiece, very aesthetic, best quality, 1girl, solo, {app_tags}"
-                f"{cloth_tags}, {pose.lower().replace(' ', '_')}, {bg.lower().replace(' ', '_')}, "
-                f"{artist}, "
+        cloth_tags = ", ".join(w(p, WEIGHTS["cloth"]) for p in cloth.split("&") if p.strip())
+        # ── 各槽位按 WEIGHTS 逐个套权重（默认 1.0，等于原样写入）──
+        # 想让画师风格弱一点、角色更像：把 WEIGHTS["artist"] 改成 0.5 即可
+        head_parts = ([w(t, WEIGHTS["quality"]) for t in QUALITY_TAGS]
+                      + [w(t, WEIGHTS["subject"]) for t in SUBJECT_TAGS]
+                      + [w(x, WEIGHTS["appearance"]) for x in (hair, eye) if x]
+                      + [cloth_tags,
+                         w(pose.lower().replace(" ", "_"), WEIGHTS["pose"]),
+                         w(bg.lower().replace(" ", "_"), WEIGHTS["bg"]),
+                         w(artist, WEIGHTS["artist"])])
+        desc = (f"{', '.join(p for p in head_parts if p)}, "
                 f"natural language: a girl {nl_app}, "
                 f"wearing {cloth}, set in {bg}, lively and charming")
         negative = NEG_STD
