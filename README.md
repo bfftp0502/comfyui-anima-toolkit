@@ -219,98 +219,56 @@ agent 照着这份 README 自动部署时，需要额外知道的几条：
 
 三条流程共用同一条链路：**写提示词文件 → `run_latest.py` 提交 ComfyUI → 出图**。区别只有两点：提示词谁写、图回哪里。
 
+### 先确认这三件事
+
+| 要确认的 | 怎么确认 | 注意 |
+|---|---|---|
+| **角色** | `python scripts/tag_lookup.py 纳西妲` → 拿到 `nahida_(genshin_impact)` 这种下划线写法 | 必须 canonical；中文先翻英文再查。写错不报错，但外观锚定和画师池会静默落空 |
+| **画师** | 指定：写 `@dairi`（`@` 不能省）；随机：`python scripts/random_char.py --artist`；要「画这角色最多的」：`python scripts/artist_rank.py "nahida_(genshin_impact)"` 查完再挑 | 随机画师风格不可控，抽到不合适的换一个 |
+| **服装 / 姿势 / 背景** | 查库确认：`python scripts/anima_tools.py cloth "礼服"`、`pose "坐姿"`、`background "街道"`；不知道要什么就 `cloth-rand` / `pose-rand` / `background-rand` 随机抽 | 用库里有的词（中英都能查）；自己编的英文短语模型不一定认 |
+
+**确认完这三样，后面全自动。**
+
 ### 直出（direct）
 
-**图直接发回你当前这个对话**，适合顺手要一张。
+**图发回当前对话**，适合顺手要一张。
 
-**流程**：
+- **你要确认的**：角色（可选，不说就是纯场景）、画师（随机也行）、描述里的服装/场景。
+- **确认完自动**：Agent 拼成一整段英文（质量词 + 角色 + 画师 + 场景），写 `args_prompt.json` → 提交 → 图回当前对话。
+- 横竖按构图自动定：单人/全身/特写 → 竖 864×1536；多人/风景/宽场景 → 横 1536×864。
+- 负面默认走工作流模板，要改就写 `args_negative.json`。
 
-1. 你说需求，说随意点也行（「来张芙宁娜」「我要一个雨夜街头的少女」）。
-2. Agent 自动判断横竖：单人 / 全身 / 特写 / 竖构图 → 竖 **864×1536**；多人 / 风景 / 宽场景 → 横 **1536×864**。判断错了等出图后再纠正。
-3. 需求里有角色 → 查 danbooru 索引确认 canonical tag，没指定画师就随机一个；要「画这角色最多的画师」则先查排行再挑。
-4. 拼成**一整段英文正面提示词**（质量词 + 角色 + 画师 + 场景 + `natural language:` 段），写进 `workspace/args_prompt.json`。注意：直出是**整段直写**，不走三文件、也不调 `set_character.py`。
-5. 负面默认用工作流模板；要加就用 `workspace/args_negative.json` 覆盖。
-6. 提交：`python scripts/run_latest.py --target anima --mode direct --no-grab --width 864 --height 1536`，等图。
-7. 图落到输出目录，agent 把图发回当前对话。
+```bash
+python scripts/run_latest.py --target anima --mode direct --no-grab --width 864 --height 1536
+```
 
 ### 跑图（run-image）
 
-**图不进聊天**，落到「收图会话」里等你去拿，适合正经出图、想反复挑。
+**图不进聊天**，落在收图会话里等你去拿，适合想反复挑。
 
-**流程（一问一答，别跳步）**：
-
-1. 你说「**跑图**」，或「跑图 芙宁娜 @dairi」。
-2. Agent **先问场景**——不会自己编。你答完，它扩写成描述：短质量前缀 + 10 个左右内容标签 + `natural language:` 段，写进 `workspace/args_description.json`。**描述里不写角色名**，角色后面单独走一个编码节点。
-3. 同时按场景组负面词，写 `workspace/args_negative.json`（基础负面 ∪ 工作流节点负面 + 按场景挑的动态互斥组）。
-4. Agent **再问角色和画师**：只给角色 → 画师要问（随机还是指定）；只给画师 → 角色随机；都没给 → 全随机。答案用 `set_character.py "角色 @画师"` 写进 `workspace/args_character.json`。
-5. 提交：`python scripts/run_latest.py --target anima --mode run --no-grab --width 864 --height 1536`，等图。
-6. Agent 播报「跑图完成✅」（不描述图里有什么）。
-7. 你发「**收图**」→ 它读最近一张的路径把图发给你；连发几次「收图」= 逐张拿。
-8. 结束时只 `/free` 卸模型，ComfyUI 进程不关。
-
-> 为什么必须一问一答：场景和角色是两个独立编码器，猜错一个整张就废。也别把「跑图」当全随机——连发三条「跑图」它也会重申口令、按顺序问。
->
-> 角色支持指定 / 随机 / 按系列随机（genshin、touhou、arknights、wuthering 等），画师支持指定 / 随机；随机画师风格不可控，抽到不合适的换一个就是。
-
-### 抽卡连抽（gacha_batch.py）
-**角色钉死，服装 / 画师 / 姿势 / 背景每张重新随机**——不确定要什么风格时，抽一批挑一张。
-
-**流程（脚本内部顺序，一次运行里发生的事）：**
-
-1. **解析参数**：张数、角色 tag、可选固定画师。
-2. **确认角色**：从 `characters` 表按完整名精确匹配，取发色/瞳色做外观锚定（查不到就不填）。所以角色 tag 必须是 canonical（`nahida_(genshin_impact)`），写错不报错、但外观和画师池会静默落空。
-3. **ComfyUI 是否在线**：脚本不单独探活，第一张提交失败就会一路 `FAILED` 到批末（每张都各自试一次提交）。跑之前先 `curl -s http://127.0.0.1:8188/system_stats` 确认。
-4. **拉画师池**（可选）：从 danbooru 拉「画过该角色的画师」频次 top100，18s 超时；拉不到就回退全量随机，不阻断。
-5. **进入 N 次循环，每张走一遍**：
-   1. **抽服装**——全库随机；命中混进来的非服装条目就重抽；鞋袜↔光脚、naked↔服装这类互斥组合随机二选一，没选中的写进负面词。
-   2. **抽姿势**——剔除需要第二个人才成立的（双人互动、拥抱、亲吻、性行为类）和符号垃圾条目。
-   3. **抽背景**——剔除猎奇（断头/内脏/血/卫生间）、混进来的服装条目、拼音残留条目。
-   4. **定画师**——指定了用指定的；否则从画师池按频次加权抽（同一批不重复）；池不可用就全量随机。
-   5. **组三文件**——`args_character.json`（角色）+ `args_description.json`（质量词/外观/服装/姿势/背景/画师/natural language）+ `args_negative.json`（标准负面 + 互斥丢弃词）。
-   6. **提交出图**——调 `run_latest.py --mode run --no-free`（不逐张卸模型），等图返回路径。
-   7. **改名存档**——复制到 `change_name/anima-<角色>-<画师>-<时间戳>.png`，原图留在输出目录（ComfyUI 前端 history 仍可见），打印这一张的路径。
-6. **收尾**：整批结束调一次 `/free` 释放显存，打印 `=== DONE ===` 和所有图的路径。
-7. **交付**：脚本只打印路径；图由 agent 发回对话（或你自己去 `change_name/` 拿）。
-
-**命令**：
+- **你要确认的（一问一答，别跳步）**：① 场景（含服装/姿势/背景）② 角色 ③ 画师（随机还是指定都要问）
+- **确认完自动**：写三文件（`args_description` / `args_negative` / `args_character`）→ 提交 → 播报「跑图完成✅」→ 你发「收图」拿图。
+- 「跑图」不等于全随机：连发三条也会重申口令、按顺序问。
 
 ```bash
-python scripts/gacha_batch.py <N> <角色tag> [@画师]
+python scripts/set_character.py "nahida_(genshin_impact) @dairi"
+python scripts/run_latest.py --target anima --mode run --no-grab --width 864 --height 1536
+```
+
+### 抽卡连抽（gacha_batch.py）
+
+**角色钉死，服装 / 画师 / 姿势 / 背景每张自动随机**——不确定要什么风格时抽一批挑一张。
+
+- **你要确认的**：① 角色（必填，canonical）② 画师（可选，写 `@dairi`；不写走画师池）
+- **不用确认的**：服装 / 姿势 / 背景——每张独立随机；想指定服装就别用抽卡，用直出或跑图
+- **确认完自动**：抽 N 张，每张出图后复制改名到 `change_name/anima-<角色>-<画师>-<时间戳>.png`，批末统一释放显存
+
+```bash
 python scripts/gacha_batch.py 5 nahida_(genshin_impact)
 python scripts/gacha_batch.py 5 nahida_(genshin_impact) @dairi
 ```
 
-| 位置 | 填什么 |
-|---|---|
-| 第 1 个 | 抽几张 |
-| 第 2 个 | 角色 canonical tag（下划线式、带系列） |
-| 第 3 个 | 可选：固定画师，**必须带 `@`**（`@dairi`，不是 `dairi`）；不写就走画师池 |
-
-**跑起来长这样**：
-
-```
-$ python scripts/gacha_batch.py 3 nahida_(genshin_impact)
-角色: nahida_(genshin_impact) | 外观锚定: white hair, green eyes
-▶ 画师池加载成功（87 位画过nahida的画师，按频次加权随机）
-[1/3] Black Coat & Boots | @dairi | sitting | city street
-    -> E:\ComfyUI\output\change_name\anima-nahida_genshin_impact-dairi-20261106201530.png
-[2/3] ...
-=== DONE ===
-E:\ComfyUI\output\change_name\...（三张的路径汇总）
-```
-
-- **尺寸固定 864×1536**（抽卡没有 `--width/--height` 参数）
-- 每张 1~3 分钟、串行跑，N 张就是 N 倍时间
-- 某张失败只打 `[n] FAILED: ...` 后继续下一张，不会整批中断
-
-**常用操作**：
-
-| 想干什么 | 怎么做 |
-|---|---|
-| 固定画师 | 第三参写 `@dairi`（`@` 不能省） |
-| 换角色 | 换第二参，tag 先用 `tag_lookup.py` 确认 |
-| 重抽某张 | 跑完后三文件停在最后一张，直接 `python scripts/run_latest.py --target anima --mode run --width 864 --height 1536` = 换 seed 重抽最后一张；中间某张就照日志把那张的「服装 \| 画师 \| 姿势 \| 背景」拼回三文件再跑 |
-| 衣服想更「正常」 | 放开文件里注释掉的 `cloth_weighted_rand()`（正常 5 : 擦边 1） |
+> 尺寸固定 864×1536（抽卡没有 `--width/--height`）；每张 1~3 分钟串行；单张失败只打 `[n] FAILED`、不中断整批。想重抽某张：跑完后三文件停在最后一张，直接再跑一次 `run_latest.py --mode run` 就是换 seed 重抽；要重抽中间某张，照日志把那张的「服装 \| 画师 \| 姿势 \| 背景」拼回三文件。
 
 **规则（只按「结构对不对」过滤，不按尺度过滤）**：
 
