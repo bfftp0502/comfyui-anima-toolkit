@@ -1,6 +1,8 @@
-# comfyui-anima-toolkit — ComfyUI Anima 生图工具包（直出 + 跑图 + 抽卡）
+﻿# comfyui-anima-toolkit — ComfyUI Anima 生图工具包（直出 + 跑图 + 抽卡）
 
 基于 **ComfyUI Good Anima** 工作流改进的 **Anima 动漫生图流水线**：直出（图发当前会话）、跑图（分步问答 + 收图会话领图）、抽卡连抽（角色固定、其余逐张随机）。配套画师/角色/姿势/服装/背景索引、提示词组装脚本与收图链路。Web 界面（如 hermes-webui 8787）可作为局域网内收图的例子。
+
+> 本文用 `<仓库地址>` 指代本仓库的 clone 地址（例：`https://github.com/<你的账号>/comfyui-anima-toolkit.git`），不写死具体 URL，仓库改名/fork 后照着替换即可。
 
 > **⚠️ 效果提示**：自动化流程追求的是「能出、能收、不用守着」；**想要精细效果（构图、手部、光影），还是建议自己人工调整提示词/参数**——本流水线定位是省事，不是取代手工调图。
 
@@ -104,7 +106,7 @@ git clone https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI.git     # RTXVid
 cd ../..   # 回到 ComfyUI 的上一级
 
 # 4. 克隆本仓库（工作流/数据/脚本全在里面）
-git clone https://github.com/bfftp0502/comfyui-anima-toolkit.git comfyui-anima-toolkit
+git clone <仓库地址> comfyui-anima-toolkit
 cd comfyui-anima-toolkit
 
 # 5. 放模型（见上表，下载后放到 ComfyUI/models/ 对应目录）
