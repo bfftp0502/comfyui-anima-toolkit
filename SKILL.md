@@ -72,6 +72,8 @@ ComfyUI 驱动的生图双流程：**直出**（图发当前会话）与**跑图
 
 批量抽卡：角色固定，服装/画师/姿势/背景每张独立随机，出图自动复制改名到 `<输出目录>/change_name/`（原图保留在输出目录，ComfyUI 前端 history 仍可见）。
 
+**流程**：确认角色（characters 表精确匹配取发色/瞳色）→ 拉画师池（失败回退随机）→ 每张循环〔抽服装→抽姿势→抽背景→定画师→写三文件→`run_latest --mode run --no-free` 提交等图→复制改名〕→ 批末 `/free` → 打印路径由 agent 交付。ComfyUI 没起时每张都会打 `FAILED`，不会中断整批。
+
 ```
 python scripts/gacha_batch.py <N> <角色tag> [固定画师@名]
 python scripts/gacha_batch.py 5 nahida_(genshin_impact)
@@ -82,6 +84,12 @@ python scripts/gacha_batch.py 5 nahida_(genshin_impact)
 | 第 1 参 | 张数 N |
 | 第 2 参 | 角色 canonical tag（下划线式，带系列，如 `nahida_(genshin_impact)`） |
 | 第 3 参 | 可选：固定画师 `@名`（不传=画师池/随机） |
+
+**要点**：
+- 第 3 参画师**必须带 `@`**（写 `@dairi`），否则会被当成普通 tag。
+- 角色 tag 不是 canonical 时不报错，但外观锚定和画师池都会静默落空（画师全随机、不锁发色瞳色）。
+- 尺寸固定 **864×1536**（抽卡没有 `--width/--height`）；每张 1~3 分钟串行，某张失败打 `[n] FAILED` 后继续下一张。
+- 产物在 `change_name/anima-<角色>-<画师>-<时间戳>.png`；脚本只打印路径，交付由 agent 发图。
 
 **不区分 SFW / R18**：服装、姿势、背景都从完整库随机抽，只按「结构上对不对」过滤，不按尺度过滤。
 
