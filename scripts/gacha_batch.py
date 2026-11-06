@@ -56,7 +56,7 @@ POSE_BAD = ["another", "carry me", "piggyback", "bridal", "handholding", "holdin
             "intercourse", "sex"]
 
 # 易出多人 / 风格不稳的画师降权 ×0.3（按画师名子串匹配，可自行追加）
-# 注意：只有「画师池加权」那段代码启用时才生效，默认是等权随机
+# 只在「确定角色、走画师池加权」那条分支生效；artists 池为空/回退 arand 时用不到
 LOW_WEIGHT_ARTISTS = ["utori"]
 
 # ── 提示词各槽位权重（默认全 1.0 = 不加权重，原样写入）──
@@ -276,7 +276,7 @@ def main():
     artist_pool = load_artist_pool(CHAR) if not ARTIST else None
     used_artists = set()
     if artist_pool:
-        print(f"▶ 画师池加载成功（{len(artist_pool)} 位画过{CHAR.split('(')[0]}的画师，等权随机）")
+        print(f"▶ 画师池加载成功（{len(artist_pool)} 位画过{CHAR.split('(')[0]}的画师，按频次加权随机）")
     else:
         print("▶ 画师池不可用（无网络/超时/未配 danbooru 凭据），回退全量 arand 随机")
 
@@ -293,12 +293,11 @@ def main():
             cands = [(n, c) for n, c in artist_pool if n not in used_artists]
             if cands:
                 names = [n for n, _ in cands]
-                # ── 权重相关（默认注释，等权随机）──
-                # 想让「画得多的画师」更容易被抽到，去掉下两行注释即可；
-                # weights = [max(c, 1) * (0.3 if any(a in n.lower() for a in LOW_WEIGHT_ARTISTS) else 1)
-                #            for n, _ in cands]
-                # artist = "@" + random.choices(names, weights=weights, k=1)[0]
-                artist = "@" + random.choice(names)
+                # 确定角色时按频次加权：画得越多的画师越容易被抽中（模型最熟），
+                # LOW_WEIGHT_ARTISTS 命中的再 ×0.3（降权不排除，治「单人图出多人」）
+                weights = [max(c, 1) * (0.3 if any(a in n.lower() for a in LOW_WEIGHT_ARTISTS) else 1)
+                           for n, _ in cands]
+                artist = "@" + random.choices(names, weights=weights, k=1)[0]
                 used_artists.add(artist[1:])
             else:
                 artist = run([py, anima_tools, "arand"])
