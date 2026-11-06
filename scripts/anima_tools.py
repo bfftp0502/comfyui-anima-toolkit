@@ -57,14 +57,16 @@ def artist_random(kw=None):
     c.close()
     if not rows:
         print("无匹配"); return
-    # 带括号画师（别名/社团后缀，特征锚定弱）降权 ×0.3，但不排除
-    weights = []
-    for name, pc in rows:
-        w = max(pc, 10)
-        if "(" in name:
-            w *= 0.3
-        weights.append(w)
-    pick = random.choices([r[0] for r in rows], weights=weights, k=1)[0]
+    # ── 权重相关（默认注释，等权随机）──
+    # 想按作品数加权（画得多的画师更容易被抽到），并给带括号画师降权 ×0.3，去掉下面注释即可：
+    # weights = []
+    # for name, pc in rows:
+    #     w = max(pc, 10)
+    #     if "(" in name:
+    #         w *= 0.3
+    #     weights.append(w)
+    # pick = random.choices([r[0] for r in rows], weights=weights, k=1)[0]
+    pick = random.choice([r[0] for r in rows])
     print(f"@{pick}")
 
 
@@ -89,8 +91,11 @@ def char_random(copy=None, k=1):
     c.close()
     if not rows:
         print("无匹配"); return
-    picks = random.choices([r[0] for r in rows],
-                           weights=[max(r[1], 10) for r in rows], k=k)
+    # ── 权重相关（默认注释，等权随机）──
+    # 想按 post_count 加权（热门角色更容易被抽到），去掉下面注释即可：
+    # picks = random.choices([r[0] for r in rows],
+    #                        weights=[max(r[1], 10) for r in rows], k=k)
+    picks = random.choices([r[0] for r in rows], k=k)
     print("\n".join(picks))
 
 

@@ -20,7 +20,7 @@ DB = Path(__file__).resolve().parent.parent / "data" / "tags_index.sqlite"
 
 
 def pick(category: str, exclude_tags: set = None, limit_candidates: int = 200) -> str:
-    """从指定分类随机挑一个标签（按 count 加权，取 count 前 N 里随机）。"""
+    """从指定分类随机挑一个标签（默认等权；按 count 加权的写法在函数里注释着）。"""
     conn = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
     cur = conn.cursor()
     cur.execute(
@@ -34,9 +34,11 @@ def pick(category: str, exclude_tags: set = None, limit_candidates: int = 200) -
     candidates = [(t, c) for t, c in rows if not exclude_tags or t not in exclude_tags]
     if not candidates:
         return ""
-    # 加权随机：count 越高权重越大（前 200 里权重差距缩小，避免总是同一个）
-    weights = [max(c, 10) for _, c in candidates]
-    return random.choices([t for t, _ in candidates], weights=weights, k=1)[0]
+    # ── 权重相关（默认注释，等权随机）──
+    # 想按 count 加权（热门 tag 更容易被抽到），去掉下面两行注释即可：
+    # weights = [max(c, 10) for _, c in candidates]
+    # return random.choices([t for t, _ in candidates], weights=weights, k=1)[0]
+    return random.choice([t for t, _ in candidates])
 
 
 def main():

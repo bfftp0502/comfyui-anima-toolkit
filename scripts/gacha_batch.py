@@ -95,6 +95,30 @@ CLOTH_EXTRA_BAD = ["holding", "carry", "gun", "rifle", "sword", "polearm", "revo
                    "slime", "bride", "detective", "ballerina", "bloodborne", "fire keeper",
                    "deerstalker", "warhammer", "demon", "angel wings", "cat girl"]
 
+# ── 服装抽取加权（默认注释，等权全库随机）──
+# 想提高「正常衣服」权重、压低擦边服装（正常 5 : 擦边 1），把下面整段取消注释，
+# 再把下面循环里的 cloth = pick(...) 换成这段：
+#   cloth = None
+#   for _ in range(12):
+#       cand = cloth_weighted_rand()
+#       if not any(b in cand.lower() for b in CLOTH_EXTRA_BAD):
+#           cloth = cand
+#           break
+#   cloth = cloth or "Elegant Dress"
+# NORMAL_CLOTH_EXTRA = ["swimsuit", "bikini", "lingerie", "underwear", "bra", "panties",
+#                       "thighhighs", "stockings", "tights", "garter", "fishnet", "see-through",
+#                       "transparent", "low cut", "plunging", "off-shoulder", "tube top",
+#                       "crop top", "halter", "camisole", "slip", "negligee", "bodysuit",
+#                       "corset", "bustier", "midriff", "bare shoulders", "exposed",
+#                       "revealing", "skirt lift", "dress lift"]
+#
+# def cloth_weighted_rand():
+#     db = sqlite3.connect(f"file:{ANIMA_DB}?mode=ro", uri=True)
+#     names = [r[0] for r in db.execute("SELECT name FROM clothing").fetchall()]
+#     db.close()
+#     weights = [1 if any(w in n.lower() for w in NORMAL_CLOTH_EXTRA) else 5 for n in names]
+#     return random.choices(names, weights=weights, k=1)[0]
+
 
 def run(cmd):
     r = subprocess.run(cmd, capture_output=True, text=True,
@@ -252,12 +276,13 @@ def main():
     artist_pool = load_artist_pool(CHAR) if not ARTIST else None
     used_artists = set()
     if artist_pool:
-        print(f"▶ 画师池加载成功（{len(artist_pool)} 位画过{CHAR.split('(')[0]}的画师，加权随机）")
+        print(f"▶ 画师池加载成功（{len(artist_pool)} 位画过{CHAR.split('(')[0]}的画师，等权随机）")
     else:
         print("▶ 画师池不可用（无网络/超时/未配 danbooru 凭据），回退全量 arand 随机")
 
     results = []
     for i in range(N):
+        # 服装：默认全库等权随机；想按「正常/擦边」加权见文件上方注释掉的 cloth_weighted_rand()
         cloth = pick([py, anima_tools, "cloth-rand"], bad_list=CLOTH_EXTRA_BAD)
         extra_neg = []
         if conflict_both(cloth):
