@@ -98,6 +98,7 @@ python scripts/gacha_batch.py 5 nahida_(genshin_impact)
 - **服装互斥**：条目拆 `&` 后随机二选一（鞋袜↔光脚、naked↔服装），选中的进正面、另一侧去权进负面，矛盾词不浪费
 - **服装条目过滤**：`CLOTH_EXTRA_BAD` 剔除混进服装表的非服装条目（持械/机械/角色主题/动作），命中重抽
 - **姿势过滤**：`POSE_BAD` 剔除需要第二人才成立的姿势（双人互动、拥抱、亲吻、性行为类），再过滤非英文/符号垃圾条目——单人图抽到必错
+- **标签写法**：姿势/背景写小写+空格（`sitting on a chair`，贴 caption 风格）；角色 tag 保留下划线 canonical（`nahida_(genshin_impact)`）
 - **背景过滤**：`BAD_BG` 剔除猎奇（断头/内脏/血/卫生间）、服装混入条目、拼音残留条目
 - **外观锚定**：characters 表**精确匹配** `name`（下划线→空格）取 hair/eye；查不到不填，避免模糊匹配串到同名角色
 - 每张提交带 `--no-free`，**整批结束统一 `/free` 一次**（省模型重载）

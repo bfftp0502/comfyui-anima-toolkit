@@ -314,8 +314,8 @@ def main():
                       + [w(t, WEIGHTS["subject"]) for t in SUBJECT_TAGS]
                       + [w(x, WEIGHTS["appearance"]) for x in (hair, eye) if x]
                       + [cloth_tags,
-                         w(pose.lower().replace(" ", "_"), WEIGHTS["pose"]),
-                         w(bg.lower().replace(" ", "_"), WEIGHTS["bg"]),
+                         w(pose.lower(), WEIGHTS["pose"]),
+                         w(bg.lower(), WEIGHTS["bg"]),
                          w(artist, WEIGHTS["artist"])])
         desc = (f"{', '.join(p for p in head_parts if p)}, "
                 f"natural language: a girl {nl_app}, "

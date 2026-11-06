@@ -1,4 +1,4 @@
-﻿# comfyui-anima-toolkit — ComfyUI Anima 生图工具包（直出 + 跑图 + 抽卡）
+# comfyui-anima-toolkit — ComfyUI Anima 生图工具包（直出 + 跑图 + 抽卡）
 
 基于 **ComfyUI Good Anima** 工作流改进的 **Anima 动漫生图流水线**：直出（图发当前会话）、跑图（分步问答 + 收图会话领图）、抽卡连抽（角色固定、其余逐张随机）。配套画师/角色/姿势/服装/背景索引、提示词组装脚本与收图链路。Web 界面（如 hermes-webui 8787）可作为局域网内收图的例子。
 
@@ -95,21 +95,23 @@ venv\Scripts\pip install comfyui-skill-cli
 
 # 3. 装自定义节点插件（克隆到 ComfyUI/custom_nodes/）
 #    —— 必需 3 个（全部工作流都依赖）——
-cd ComfyUI/custom_nodes
+cd custom_nodes
 git clone https://github.com/BlackSnowSkill/ANIMA_BOOSTER.git            # AnimaBoosterLoader
 git clone https://github.com/BlackSnowSkill/ComfyUI-BSS_FLSampler.git   # FLS_SamplerV4
 git clone https://github.com/daraskme/comfy_anima_tea_cache.git         # AnimaTeaCache
 #    —— 可选 1 个（仅 N 卡 RTX 用带超分的工作流时需要；A 卡跳过）——
 git clone https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI.git     # RTXVideoSuperResolution
-cd ../..   # 回到上级
+cd ../..   # 回到 ComfyUI 的上一级
 
 # 4. 克隆本仓库（工作流/数据/脚本全在里面）
-git clone <本仓库地址> comfyui-anima-toolkit
+git clone https://github.com/bfftp0502/comfyui-anima-toolkit.git comfyui-anima-toolkit
 cd comfyui-anima-toolkit
 
 # 5. 放模型（见上表，下载后放到 ComfyUI/models/ 对应目录）
 
 # 6. 启动 ComfyUI（已手动启动可跳过；comfy_detach.py 是 detached 常驻启动）
+#    ComfyUI 不在默认的 ~/ComfyUI 时，先指路径：
+$env:COMFY_DIR = "E:\ComfyUI"
 python scripts/comfy_detach.py
 
 # 7. 验证链路（在 ComfyUI 启动后执行；若 comfyui-skill 不在 PATH，用 venv\Scripts\comfyui-skill）
@@ -125,10 +127,9 @@ curl http://127.0.0.1:8188/system_stats   # 有 JSON 返回 = ComfyUI 就绪
 
 ```powershell
 # ① 写提示词文件 workspace/args_prompt.json（直出格式：整段正面，角色+画师+场景+质量词融合）
-#    例如：
-#    {
-#      "prompt": "masterpiece, very aesthetic, best quality, 1girl, furina_(genshin_impact) @dairi, long hair, blue eyes, standing, looking at viewer, city street at night, natural language: a girl in an elegant dress standing under streetlights, soft lighting"
-#    }
+#    ⚠️ 必须无 BOM：PowerShell 5.1 的 Set-Content -Encoding utf8 会加 BOM，run_latest 会报
+#    「Unexpected UTF-8 BOM」——用下面这行 python 写，或 [IO.File]::WriteAllText + UTF8Encoding($false)
+python -c "import json;open(r'workspace/args_prompt.json','w',encoding='utf-8').write(json.dumps({'prompt':'masterpiece, very aesthetic, best quality, 1girl, furina_(genshin_impact) @dairi, standing, looking at viewer, city street at night, natural language: a girl standing under streetlights, soft lighting'}, ensure_ascii=False))"
 
 # ② 提交（anima 直出；尺寸 --width/--height 可选）
 python scripts/run_latest.py --target anima --mode direct --no-grab --width 864 --height 1536
@@ -154,6 +155,23 @@ python scripts/run_latest.py --target anima --mode direct --no-grab --width 864 
 | `--seed N` | 固定 seed（复现、对比同一张；默认每张随机） |
 | `--width` / `--height` | 覆盖尺寸（竖 864×1536、横 1536×864） |
 
+### 冒烟测试（固定提示词 + 示例图）
+
+部署完先跑这一条，确认链路真的通。测试词固定在 `tests/smoke_prompt.json`，**提示词和下面的示例图是同一组参数**（seed 20261106、864×1536、direct 模式）：
+
+```powershell
+Copy-Item tests\smoke_prompt.json workspace\args_prompt.json
+python scripts\run_latest.py --target anima --mode direct --no-grab --seed 20261106 --width 864 --height 1536
+```
+
+**判定**：日志打出 `✅ 出图完成: <路径>`，且该文件存在；尺寸 864×1536，RTX 工作流 2x 超分后是 1728×3072。
+
+<img src="examples/smoke-test.jpg" alt="冒烟测试示例：furina_(genshin_impact) @dairi, sitting on a chair, city street at night" width="420">
+
+图里的组合：`furina_(genshin_impact)` + `@dairi` + `sitting on a chair, city street at night` + 质量词 + natural language 段。**姿势/背景用空格写法**，角色 tag 保留下划线 canonical——这也是仓库的既定规范。
+
+> 这张图就是按上面命令、上面 seed 跑出来的，所以「提示词 ↔ 图」对得上；换了 seed 或改了提示词，图会不一样。
+
 ### 可选环境变量
 
 | 变量 | 默认 | 说明 |
@@ -177,6 +195,8 @@ python scripts/run_latest.py --target anima --mode direct --no-grab --width 864 
 **`comfyui-skill list` 是空的 / 只列出几个**：没在 `workspace/` 目录下执行，或者 `workspace/data/local/*/workflow.json` 缺文件。
 
 **报 `model_name` / `lora_name` / `vae_name` 找不到**：文件名和「模型文件」表格对不上，或放错目录。
+
+**`args_prompt.json 解析失败: Unexpected UTF-8 BOM`**：文件带了 BOM，通常是 PowerShell 5.1 的 `Set-Content -Encoding utf8` 写的。改用 `[IO.File]::WriteAllText(path, text, (New-Object System.Text.UTF8Encoding($false)))`，或照「手动出一张图」那节的 python 写法。
 
 **报 `RTXVideoSuperResolution` 节点不存在**：用了带超分的工作流但没装第四个节点，换成 `-nortx` 版。
 
@@ -277,6 +297,7 @@ python scripts/gacha_batch.py 5 nahida_(genshin_impact) @dairi
 - **服装互斥**：条目拆 `&` 后随机二选一（鞋袜↔光脚、naked↔服装），选中的进正面、另一侧去权进负面，矛盾词不浪费
 - **服装条目过滤**：`CLOTH_EXTRA_BAD` 剔除混进服装表的非服装条目（持械/机械/角色主题/动作），命中重抽
 - **姿势过滤**：`POSE_BAD` 剔除需要第二个人才成立的姿势（双人互动、拥抱、亲吻、性行为类），另过滤非英文/符号垃圾条目——单人图抽到这些必错
+- **标签写法**：姿势/背景写成**小写 + 空格**（`sitting on a chair`）——Anima 训练语料是 Danbooru 标签 + 自然语言 caption 混合，空格更贴近 caption 写法；**角色 tag 保留下划线 canonical**（`nahida_(genshin_impact)`），实测还原正常
 - **背景过滤**：`BAD_BG` 剔除猎奇（断头/内脏/血/卫生间）、混进来的服装条目、拼音残留条目
 - **角色外观自动锚定**：characters 表**精确匹配** `name`（下划线→空格）取 hair/eye，查不到不填——模糊匹配会串到同名角色（同名不同系列）
 - 依赖 `anima_tools.py` 的 `cloth-rand` / `pose-rand` / `background-rand` 三个子命令（本仓库已内置）
